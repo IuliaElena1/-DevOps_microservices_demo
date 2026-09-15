@@ -1,0 +1,1294 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — docker-compose explained from scratch
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/f15b2818-4829-484c-8354-844e6dc95567
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — WHAT IS YAML?
+# ══════════════════════════════════════════════════════════════
+#
+#   YAML is just a way to write configuration in a text file.
+#   It stands for "Yet Another Markup Language".
+#   Files end in .yml or .yaml — they are the same thing.
+#
+#   The only rule you need to remember:
+#     - use a colon (:) to separate a name from its value
+#     - use indentation (spaces) to show that something belongs inside something else
+#     - NEVER use tabs — only spaces
+#
+#   Example — this is YAML:
+#
+#     name: phone-sor-api
+#     port: 8000
+#
+#   That means: name is "phone-sor-api" and port is 8000.
+#   It is the same as JSON { "name": "phone-sor-api", "port": 8000 }
+#   but easier to read.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — WHAT IS docker-compose?
+# ══════════════════════════════════════════════════════════════
+#
+#   Until now you started ONE container with docker run.
+#   But a real application has multiple pieces running at the same time:
+#
+#     - your FastAPI app
+#     - Kafka (the message broker — explained below)
+#     - Zookeeper (Kafka's helper — explained below)
+#
+#   Each piece is its own container. Without docker-compose you would need to:
+#     1. Start Zookeeper manually
+#     2. Start Kafka manually
+#     3. Start your app manually
+#     4. Connect them all manually
+#
+#   With docker-compose you write ONE file (docker-compose.yml) that
+#   describes all the pieces, and then run ONE command:
+#
+#     docker compose up
+#
+#   That's it. Docker starts everything in the right order and connects them.
+#
+#   Think of it like this:
+#     docker run        = turning on one device
+#     docker compose up = turning on the whole setup with one power switch
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — WHAT IS KAFKA? WHAT IS ZOOKEEPER?
+# ══════════════════════════════════════════════════════════════
+#
+#   KAFKA is a message broker.
+#   It sits between services and lets them communicate WITHOUT calling each other directly.
+#
+#   Instead of:
+#     Service A calls Service B directly → if B is down, A crashes too
+#
+#   With Kafka:
+#     Service A sends a message to Kafka → Kafka holds it → Service B reads it when ready
+#     If B is down, the message waits in Kafka until B comes back
+#
+#   Think of Kafka like a post office:
+#     - you drop a letter (message) into the post office (Kafka)
+#     - the recipient picks it up when they are ready
+#     - you don't need to wait for them
+#
+#   ZOOKEEPER is Kafka's internal manager.
+#   Kafka cannot run without Zookeeper — Zookeeper keeps track of
+#   which Kafka servers are alive, who is the leader, etc.
+#   You don't interact with Zookeeper directly. It just needs to be running.
+#
+#   So the startup order must always be:
+#     1. Zookeeper starts first
+#     2. Kafka starts (needs Zookeeper to already be running)
+#     3. Your app starts (needs Kafka to already be running)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — HOW CONTAINERS TALK TO EACH OTHER
+# ══════════════════════════════════════════════════════════════
+#
+#   When docker-compose starts, it creates a private network automatically.
+#   Every container joins that network.
+#   Inside that network, each container has a name — its SERVICE NAME from the file.
+#
+#   So instead of using IP addresses (which change), containers use names:
+#     "I want to reach Kafka" → connect to "kafka:9092"
+#     "I want to reach Zookeeper" → connect to "zookeeper:2181"
+#
+#   Docker acts like a phone book: it translates the name to the right container.
+#
+#   From YOUR laptop (outside the network), you reach them via ports:
+#     Your app  → http://localhost:8000
+#     Kafka     → localhost:9092
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — THE docker-compose.yml FILE, LINE BY LINE
+# ══════════════════════════════════════════════════════════════
+
+services:
+# "services" is the section where you list every container you want to run.
+# Everything indented under it is one container.
+
+
+# ── CONTAINER 1: zookeeper ────────────────────────────────────
+
+  zookeeper:
+#   This is the name of the container. You chose this name.
+#   Other containers will use this name to reach it: "zookeeper:2181"
+
+    image: confluentinc/cp-zookeeper:7.5.0
+#   "image" = which pre-built Docker image to use.
+#   Docker downloads it from Docker Hub (hub.docker.com) if not already on your machine.
+#   confluentinc = the company that makes this image (Confluent, the Kafka company)
+#   cp-zookeeper = the image name (cp = Confluent Platform)
+#   7.5.0 = the version
+
+    environment:
+#   "environment" = a list of environment variables passed into the container.
+#   An environment variable is a setting the program reads when it starts.
+#   Same as -e KEY=VALUE in docker run.
+
+      ZOOKEEPER_CLIENT_PORT: 2181
+#     The port Zookeeper listens on for connections from Kafka.
+#     2181 is the standard Zookeeper port — always this number.
+#     Kafka will connect to "zookeeper:2181" using exactly this port.
+
+      ZOOKEEPER_TICK_TIME: 2000
+#     The heartbeat interval in milliseconds (2000ms = 2 seconds).
+#     Zookeeper uses this to check if connected clients are still alive.
+#     2000 is the standard default — you do not need to change this.
+
+
+# ── CONTAINER 2: kafka ────────────────────────────────────────
+
+  kafka:
+#   The name of the Kafka container.
+
+    image: confluentinc/cp-kafka:7.5.0
+#   Same company as Zookeeper, but the Kafka image.
+#   Must be the same version as Zookeeper (7.5.0) — they need to match.
+
+    depends_on:
+      - zookeeper
+#   "depends_on" = do not start this container until Zookeeper is running.
+#   Without this, Kafka might start before Zookeeper and crash immediately.
+
+    ports:
+      - "9092:9092"
+#   Publish port 9092 from the container to your laptop.
+#   Format: "laptop-port:container-port"
+#   9092 is Kafka's standard port.
+#   This lets you connect to Kafka from your laptop (outside Docker's network).
+
+    environment:
+
+      KAFKA_BROKER_ID: 1
+#     Every Kafka server has a unique ID number. We have one server, so it is 1.
+
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#     Tells Kafka where to find Zookeeper.
+#     "zookeeper" = the service name defined above — Docker resolves it to that container.
+#     2181 = the port Zookeeper listens on (set above with ZOOKEEPER_CLIENT_PORT).
+
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+#     Kafka announces two addresses so both containers AND your laptop can reach it:
+#     PLAINTEXT://kafka:9092        → for other containers (they use the service name "kafka")
+#     PLAINTEXT_HOST://localhost:9092 → for your laptop (you use localhost)
+#     Without both, either containers or your laptop cannot connect.
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+#     Maps each listener name to a security protocol.
+#     PLAINTEXT means no encryption — fine for local development.
+#     In production you would use SSL here.
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#     Kafka normally copies data across multiple servers for safety.
+#     We have only ONE server, so we set replication to 1 (no copies needed).
+#     If you leave this at the default (3) with only 1 server, Kafka fails to start.
+
+
+# ── CONTAINER 3: api ──────────────────────────────────────────
+
+  api:
+#   The name of your FastAPI app container.
+
+    build: .
+#   Instead of using a pre-built image, BUILD the image from the Dockerfile
+#   in the current folder (the dot means "current folder").
+#   This is your code — docker-compose builds it fresh every time you run --build.
+
+    ports:
+      - "8000:8000"
+#   Publish port 8000 so you can reach the API from your laptop at localhost:8000.
+
+    depends_on:
+      - kafka
+#   Do not start the app until Kafka is running.
+#   The app needs Kafka to be ready before it can connect to it.
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+#     Tells the app where Kafka is.
+#     "kafka" = the service name above, Docker resolves it.
+#     9092 = Kafka's port.
+#     The app reads this variable at startup to know where to connect.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — COMMANDS YOU NEED TO KNOW
+# ══════════════════════════════════════════════════════════════
+#
+#   All commands run from the folder that contains docker-compose.yml
+#   (number-inventory-service/)
+#
+#   START everything in the background:
+#     docker compose up -d
+#     (-d = detached, same as in docker run: runs in background, terminal stays free)
+#
+#   START and watch all logs live (useful for debugging):
+#     docker compose up
+#     (no -d: logs stream in the terminal; Ctrl+C stops everything)
+#
+#   SEE what is running:
+#     docker compose ps
+#
+#   SEE logs for one specific service:
+#     docker compose logs -f api
+#     (-f = follow, keeps streaming new lines)
+#
+#   STOP everything (containers stop but are not deleted):
+#     docker compose stop
+#
+#   STOP and DELETE all containers:
+#     docker compose down
+#
+#   STOP, DELETE containers AND delete all saved data:
+#     docker compose down -v
+#     (-v = volumes: deletes the stored data too — careful with this one)
+#
+#   REBUILD the app image after you changed the code:
+#     docker compose up -d --build
+#     (--build forces Docker to rebuild the image from the Dockerfile)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — FULL ARCHITECTURE EXPLAINED (your docker-compose.yml)
+# ══════════════════════════════════════════════════════════════
+#
+#   Docker Compose is a tool that lets you define and run applications
+#   made of multiple Docker containers with a single command.
+#
+#   While docker run starts ONE container at a time,
+#   docker-compose.yml defines an entire ecosystem and starts everything at once:
+#
+#     docker compose up -d
+#
+#   Docker Compose automatically creates a shared private network for all services,
+#   so containers can reach each other using the service name directly
+#   (e.g. the "api" container finds Kafka at "kafka:9092").
+#
+#   Your file defines 3 interconnected services:
+#
+#   [ Zookeeper ] <--(coordination)-- [ Kafka Broker ] <--(messages)-- [ FastAPI ]
+#    (port 2181)                        (port 9092)                    (port 8000)
+
+
+# ── SECTION 1: Zookeeper ──────────────────────────────────────
+#
+#   Zookeeper is required by classic Kafka versions to manage cluster state.
+#   It tracks which Kafka servers are alive and coordinates between them.
+#   You never interact with it directly — it just needs to be running.
+#
+#   services:
+#     The keyword that starts the list of containers.
+#
+#   zookeeper:
+#     The name you give this service inside the internal Docker network.
+#     Other containers use this name to reach it: "zookeeper:2181"
+#
+#   image: confluentinc/cp-zookeeper:7.5.0
+#     Downloads the ready-made Zookeeper image from Docker Hub.
+#     (version 7.5.0 made by Confluent — the company behind Kafka)
+#
+#   environment:
+#     Settings / environment variables sent inside the container.
+#
+#   ZOOKEEPER_CLIENT_PORT: 2181
+#     The internal port where Zookeeper listens for connections from Kafka.
+#     2181 is the standard Zookeeper port — always this number.
+#
+#   ZOOKEEPER_TICK_TIME: 2000
+#     The base time unit (in milliseconds) used by Zookeeper for
+#     health checks and heartbeats (signals that say "I am still alive").
+#     2000ms = 2 seconds. This is the standard default.
+
+
+# ── SECTION 2: Kafka ──────────────────────────────────────────
+#
+#   The message broker through which events are sent and received between services.
+#
+#   kafka:
+#     The name of the Kafka service in the internal network.
+#
+#   image: confluentinc/cp-kafka:7.5.0
+#     The official Confluent image for Apache Kafka.
+#     Must match the Zookeeper version (7.5.0).
+#
+#   depends_on: / - zookeeper
+#     Tells Docker Compose to start Zookeeper FIRST,
+#     because Kafka cannot function without it.
+#
+#   ports: / - "9092:9092"
+#     Exposes port 9092 to the outside.
+#     Allows applications on your laptop (localhost) to connect to Kafka
+#     from outside the Docker network.
+#
+#   KAFKA_BROKER_ID: 1
+#     The unique identifier of this Kafka node in the cluster.
+#     We have one node, so the ID is 1.
+#
+#   KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#     Tells Kafka where to find Zookeeper.
+#     Notice it uses the service name "zookeeper" directly — Docker resolves it.
+#     2181 is the port set above with ZOOKEEPER_CLIENT_PORT.
+#
+#   KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+#     Critical network configuration. Tells Kafka how it can be reached:
+#
+#     PLAINTEXT://kafka:9092
+#       For other containers inside the Docker network (like your API).
+#       They use the service name "kafka".
+#
+#     PLAINTEXT_HOST://localhost:9092
+#       For programs running directly on your laptop, outside Docker.
+#       They use "localhost".
+#
+#   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ...
+#     Defines that both connections above use an unencrypted protocol (PLAINTEXT).
+#     Fine for local development. In production you would use SSL.
+#
+#   KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#     Sets the replication factor to 1.
+#     Required when you have a single Kafka server locally —
+#     otherwise Kafka looks for other servers to copy data to and fails to start.
+
+
+# ── SECTION 3: API (your FastAPI app) ─────────────────────────
+#
+#   api:
+#     The name of the service for your application.
+#
+#   build: .
+#     Unlike Kafka and Zookeeper (which use pre-built images),
+#     for the API you tell Docker to BUILD the image locally
+#     from the Dockerfile in the current folder (. = current folder).
+#
+#   ports: / - "8000:8000"
+#     Maps port 8000 from the container to localhost:8000,
+#     so you can access Swagger UI in the browser at http://localhost:8000/docs.
+#
+#   depends_on: / - kafka
+#     Tells Docker to wait for the Kafka service to start before starting your app.
+#     The app needs Kafka to be ready before it can connect.
+#
+#   KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+#     Sends an environment variable into your FastAPI code.
+#     This tells your application that it should connect to Kafka at "kafka:9092".
+#     "kafka" = the service name above, Docker resolves it to the right container.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — DEEPER EXPLANATIONS WITH REAL-LIFE ANALOGIES
+# ══════════════════════════════════════════════════════════════
+
+
+# ── 1. WHAT IS A CLUSTER? ─────────────────────────────────────
+#
+#   A cluster is a group of multiple computers (called servers or nodes)
+#   that work together as if they were one single large computer.
+#
+#   Analogy: If you need to move heavy furniture, one person cannot lift it.
+#   But a team of 4 people (a cluster) lifts it easily.
+#   If one person gets tired and stops, the other 3 keep holding it
+#   without the furniture falling.
+#
+#   In production, Kafka runs on a cluster (3, 5 or 10 servers at the same time).
+#   If one server breaks down, the system does not crash —
+#   the other servers take over the work.
+#
+#   On your laptop: you have ONE server (one container). That is fine for development.
+
+
+# ── 2. WHERE IS THE IMAGE confluentinc/cp-zookeeper:7.5.0? ───
+#
+#   The image is physically stored on Docker Hub servers (hub.docker.com) —
+#   a public site, a kind of "Google Play Store" for Docker.
+#
+#   confluentinc  = the company/account that created the image (Confluent)
+#   cp-zookeeper  = the name of the software package
+#   7.5.0         = the exact version
+#
+#   When you run docker compose up, your computer automatically downloads
+#   the image from Docker Hub to your local hard drive —
+#   exactly like downloading an app on your phone.
+#   Next time you run it, Docker uses the cached copy (no re-download).
+
+
+# ── 3. WHAT IS A PORT? INTERNAL vs EXTERNAL PORT ─────────────
+#
+#   Think of your computer as an apartment building.
+#   The building address is "localhost" (or your IP).
+#   Ports are the apartment numbers (from 1 to 65535).
+#
+#     Apartment 8000 = your FastAPI app lives here
+#     Apartment 9092 = Kafka lives here
+#     Apartment 2181 = Zookeeper lives here
+#
+#   INTERNAL PORT (inside the container):
+#   When Docker runs, it creates a "house with a fence" (an isolated environment).
+#   The app inside the container listens on an internal port
+#   (e.g. apartment 8000 inside the fence).
+#   From outside the fence, you cannot reach it directly.
+#
+#   EXTERNAL PORT — what "ports: - 9092:9092" does:
+#   The mapping creates a door in the fence.
+#
+#     First  9092 = the port on YOUR physical computer (the Host)
+#     Second 9092 = the port inside the Docker container
+#
+#   Diagram:
+#
+#    Your Computer (Host / Localhost)
+#    ┌─────────────────────────────────────────────────────┐
+#    │  App (e.g. Postman / Browser)                       │
+#    │    │                                                │
+#    │    ▼  sends request to localhost:9092               │
+#    │  ┌──────────────────────────────────────────────┐   │
+#    │  │  Door in the fence (Port Mapping 9092->9092) │   │
+#    │  └───────────────────────┬──────────────────────┘   │
+#    │                          │ (enters Docker)          │
+#    │                          ▼                          │
+#    │               ┌─────────────────────┐               │
+#    │               │   Container KAFKA   │               │
+#    │               │  (internal port 9092│               │
+#    │               └─────────────────────┘               │
+#    └─────────────────────────────────────────────────────┘
+#
+#   Why do you need to specify the port when calling?
+#   Because "localhost" tells WHICH computer to reach,
+#   but the port tells WHICH APPLICATION on that computer to send the message to.
+
+
+# ── 4. WHAT IS APACHE KAFKA? ─────────────────────────────────
+#
+#   Apache Kafka is an ultra-fast postman (a Message Broker or Event Bus).
+#
+#   Analogy: Imagine a factory.
+#   One worker (the SoR Service) packages boxes and puts them on a conveyor belt.
+#   The worker does not wait to see who needs the box — they just put it on the belt and leave.
+#   At the other end, 3 other workers (Notifications Service, Analytics Service)
+#   pick up boxes from the belt when they have time.
+#
+#   The conveyor belt IS Kafka.
+#   It receives messages (events) and keeps them in order,
+#   so other services can read them when ready.
+#   If a service is temporarily down, messages wait in Kafka until it comes back.
+
+
+# ── 5. WHAT IS KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181? ──────
+#
+#   Docker Compose creates a private internal network.
+#   In this network, Docker works like a phone book:
+#   instead of writing complicated IP addresses (like 172.18.0.2:2181),
+#   you write the service name directly: "zookeeper".
+#
+#   This line tells Kafka:
+#   "Hey Kafka, when you want to talk to your manager Zookeeper,
+#    look for it in the network under the name 'zookeeper' at port 2181."
+
+
+# ── 6. KAFKA_ADVERTISED_LISTENERS AND PLAINTEXT ───────────────
+#
+#   Kafka has a quirk: when an application connects to it,
+#   Kafka replies: "Hi! To continue the conversation, call me at address X."
+#   These lines define what address X is.
+#
+#   KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+#
+#   PLAINTEXT://kafka:9092
+#     If another Docker container (like your FastAPI API) asks Kafka where to send messages,
+#     Kafka replies: "I am inside the Docker network, find me at kafka:9092."
+#
+#   PLAINTEXT_HOST://localhost:9092
+#     If a program on your physical laptop (outside Docker) asks Kafka,
+#     it replies: "You are outside, find me at localhost:9092."
+#
+#   Without both entries, either containers or your laptop cannot connect.
+#
+#   WHAT IS PLAINTEXT? (unencrypted protocol)
+#
+#   Encrypted protocol (SSL/TLS — HTTPS):
+#     When you send a password on the internet, it is encoded (e.g. a8f93j21d).
+#     Even if someone intercepts the message, they see only unreadable characters.
+#
+#   Unencrypted protocol (PLAINTEXT):
+#     Data travels as plain text (e.g. "password123").
+#     Anyone listening on the network can read it.
+#
+#   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT tells Kafka:
+#   "Do not use complicated SSL security certificates right now.
+#    We are on my local computer in development mode —
+#    use PLAINTEXT (plain text) to keep things simple and fast."
+#
+#   In production (on a real server), you would use SSL here.
+
+
+# ── 7. KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1 ─────────────
+#
+#   When Kafka runs in a large company (in production), it makes backup copies
+#   (replication). If you send a message, Kafka saves it on Server 1,
+#   but automatically makes a copy on Server 2 and Server 3 (Replication Factor = 3).
+#
+#   On your laptop, you have ONE Kafka container (one server).
+#
+#   If you do NOT set this option, Kafka tries by default to make 3 backup copies.
+#   It searches for 2 more servers, finds none, and crashes with an error.
+#
+#   By setting REPLICATION_FACTOR: 1 you tell Kafka:
+#   "Keep only one copy of the data (on yourself).
+#    Do not look for other servers — there is only you on this laptop."
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — COMMON QUESTIONS ANSWERED
+# ══════════════════════════════════════════════════════════════
+
+
+# ── Q1: ARE BACKUP SERVERS JUST SITTING THERE DOING NOTHING? ─
+#
+#   No! All servers work at the same time. None of them sit idle.
+#
+#   Think of a team of 3 cashiers at a supermarket:
+#     - All 3 serve customers in parallel (they share the workload)
+#     - Each cashier has a copy of the price list and stock (replication)
+#     - If one gets sick and goes home, the store does not close —
+#       the other 2 take over their customers
+#
+#   Same with Kafka: in a cluster of 3 servers (called Brokers),
+#   all 3 servers receive and process data every second.
+#   But for safety, when a message arrives on Server 1,
+#   Kafka instantly copies it to Server 2 and Server 3 as well.
+#
+#   If Server 1 explodes or loses power, the data is not lost
+#   (it exists on Servers 2 and 3) and the application keeps running
+#   without any pause or interruption.
+
+
+# ── Q2: WHERE DO PORT NUMBERS COME FROM? (9092, 8000, 2181) ──
+#
+#   Port numbers are conventions (standards) set by the creators of each program.
+#   Computers use numbers from 1 to 65535 to tell applications apart.
+#   To avoid chaos, the IT community agreed on default numbers:
+#
+#   Program                        Default Port    Who decided
+#   ─────────────────────────────────────────────────────────
+#   HTTP (normal websites)         80              World standard
+#   HTTPS (secure websites)        443             World standard
+#   PostgreSQL (database)          5432            PostgreSQL creators
+#   Apache Kafka                   9092            Kafka creators
+#   Zookeeper                      2181            Zookeeper creators
+#   FastAPI / Uvicorn              8000            Python community convention
+#
+#   WHAT DOES "9092:9092" MEAN?
+#   The format in Docker Compose is:  LEFT : RIGHT  =  HOST_PORT : CONTAINER_PORT
+#
+#   Right side (9092) = the port Kafka listens on inside the container (set by Kafka creators)
+#   Left  side (9092) = the port YOU choose to use on your laptop
+#                       you kept it the same (9092) for convenience
+#
+#   You could write "9999:9092" if port 9092 was already taken on your laptop.
+#   That means: on your laptop you call port 9999,
+#   and Docker redirects the call to port 9092 inside the container.
+
+
+# ── Q3: WHAT IS "environment"? ───────────────────────────────
+#
+#   "environment" is a list of settings (variables) you inject into a container
+#   when it starts up.
+#
+#   Think of a Docker container as a sealed box.
+#   When you download the Kafka image from the internet,
+#   the code inside is identical for everyone.
+#   But Kafka needs to know:
+#     - "What is my name?"
+#     - "Where is Zookeeper?"
+#     - "How many copies should I make of each message?"
+#
+#   Instead of modifying the code inside the application
+#   (which is hard and wrong), you use the environment: section
+#   to pass these settings from the outside — like post-it notes stuck on the box.
+#
+#   Real-life analogy:
+#   When you buy a new TV (the container), it comes pre-programmed from the factory.
+#   But when you turn it on for the first time, it asks you:
+#
+#     What country are you in?  → COUNTRY=Romania
+#     What language do you want? → LANGUAGE=Romanian
+#     What is the Wi-Fi password? → WIFI_PASS=1234
+#
+#   These are environment variables.
+#   They tell the application HOW to behave in the environment it runs in —
+#   without rewriting its code.
+#
+#   In docker-compose.yml, this is exactly what you are doing:
+#   you are telling Kafka its Wi-Fi password, its country, its language —
+#   all the settings it needs to start correctly on YOUR machine.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 10 — STEP 1: TESTING docker-compose FOR THE FIRST TIME
+# ══════════════════════════════════════════════════════════════
+#
+#   Run these 3 commands in order from number-inventory-service/
+
+
+# ── COMMAND 1 ─────────────────────────────────────────────────
+#
+#   docker stop phone-sor-api && docker rm phone-sor-api
+#
+#   This is a cleanup command made of two parts joined by && :
+#   && means "run the second command only if the first one succeeded"
+#
+#   docker stop phone-sor-api
+#     Stops the old container you started manually earlier with docker run.
+#     Sends it a signal to shut down safely (graceful shutdown).
+#
+#   docker rm phone-sor-api
+#     Permanently deletes the stopped container from Docker's memory.
+#     (The IMAGE is not deleted — only this specific running instance)
+#
+#   WHY do you need to do this?
+#   Earlier you started only the API container alone.
+#   Now you want to start it again, but this time together with Kafka and Zookeeper
+#   through Docker Compose.
+#   If you skip this step, Docker will give you an error:
+#     "The name phone-sor-api is already in use"
+#   or port 8000 will already be occupied and the new container cannot start.
+
+
+# ── COMMAND 2 ─────────────────────────────────────────────────
+#
+#   docker compose up -d
+#
+#   This is the command that brings your entire system to life
+#   as defined in docker-compose.yml.
+#
+#   docker compose up
+#     Reads docker-compose.yml from the current folder and does 3 things automatically:
+#       1. Builds the image for your API (because of "build: ." in the file)
+#       2. Downloads the Kafka and Zookeeper images from Docker Hub (if not already cached)
+#       3. Creates a private internal network and starts all 3 containers
+#          in the correct order: Zookeeper first, then Kafka, then the API
+#
+#   -d (detached mode)
+#     Runs everything in the background.
+#     Your terminal stays free — you can keep typing other commands.
+#     Without -d, the terminal would be blocked showing live logs from all 3 containers.
+#
+#   After this command, verify everything is running:
+#     docker compose ps
+
+
+# ── COMMAND 3 ─────────────────────────────────────────────────
+#
+#   bash scripts/seed.sh
+#
+#   This populates the database with initial test data.
+#   In IT this process is called "seeding" (planting data like seeds).
+#
+#   bash
+#     The program (interpreter) that executes shell script files.
+#     It reads the file line by line and runs each command.
+#
+#   scripts/seed.sh
+#     A path to a text file (.sh) containing a series of automated commands.
+#     In our case: a loop that sends curl POST requests to the API.
+#
+#   What does it actually do?
+#   Instead of you manually opening Swagger UI or Postman and typing
+#   15 phone numbers one by one, this script sends them automatically.
+#   It reads synthetic_numbers.json and fires a POST /numbers request
+#   for each entry — instantly populating the API with real test data
+#   so you have something to work with when testing states and transitions.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 11 — WHAT YOU CAN SEE AND DO AFTER THE 3 COMMANDS
+# ══════════════════════════════════════════════════════════════
+#
+#   After running the 3 commands, your system is fully running and populated.
+#   Here is what you can verify and test right now.
+
+
+# ── SECTION A: WHAT YOU CAN SEE ───────────────────────────────
+
+#   1. IN THE BROWSER — Swagger UI (visual interface)
+#
+#   Open: http://localhost:8000/docs
+#
+#   You will see an interactive page listing all your API routes
+#   (GET /numbers, POST /numbers, PATCH /numbers/{e164}/status, etc.)
+#
+#   Because seed.sh already populated the data:
+#     - Click on GET /numbers
+#     - Click "Try it out" → "Execute"
+#     - You will see the list of phone numbers created automatically,
+#       each with their e164, status (AVAILABLE) and version (1)
+#
+#
+#   2. IN THE TERMINAL — container status and logs
+#
+#   See all running services:
+#     docker compose ps
+#   You will see a table with 3 containers (api, kafka, zookeeper)
+#   all showing status "Up".
+#
+#   Watch the application logs in real time (see what happens "under the hood"):
+#     docker compose logs -f api
+#   (-f = follow: streams new lines as they appear. Press Ctrl+C to exit)
+
+
+# ── SECTION B: WHAT YOU CAN TEST ──────────────────────────────
+
+#   1. TEST OPTIMISTIC LOCKING
+#
+#   This verifies that two simultaneous writes cannot overwrite each other.
+#
+#   Step 1: Read a phone number — note it has version: 1
+#             GET /numbers/+14155550100
+#
+#   Step 2: Change its status sending version: 1
+#             PATCH /numbers/+14155550100/status
+#             body: { "new_status": "RESERVED", "version": 1 }
+#             → succeeds, version becomes 2
+#
+#   Step 3: Try the same old request again with version: 1
+#             PATCH /numbers/+14155550100/status
+#             body: { "new_status": "RESERVED", "version": 1 }
+#             → API returns 409 Conflict — it REFUSES the change
+#
+#   This is the optimistic lock working correctly.
+#   The service detected a stale version and protected the data.
+#
+#
+#   2. VERIFY KAFKA MESSAGES
+#
+#   When you change a number's status through the API,
+#   the service should publish an event to Kafka.
+#
+#   You can go inside the Kafka container from the terminal
+#   and "listen" to the messages your API sends:
+#
+#     docker compose exec kafka kafka-console-consumer \
+#       --bootstrap-server localhost:9092 \
+#       --topic number-events \
+#       --from-beginning
+#
+#   docker compose exec kafka
+#     Opens a terminal session INSIDE the running Kafka container.
+#     "exec" = execute a command inside an already-running container.
+#
+#   kafka-console-consumer
+#     A built-in Kafka tool that reads and prints messages from a topic.
+#
+#   --bootstrap-server localhost:9092
+#     Tells the consumer where Kafka is (inside the container, localhost works).
+#
+#   --topic number-events
+#     The topic to listen to — this is where your API publishes state changes.
+#
+#   --from-beginning
+#     Read ALL messages from the start, not just new ones.
+#
+#   When you make a change in the API (via Swagger or curl),
+#   you will instantly see a new JSON message appear in this terminal window.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 12 — COMPLETE STARTUP GUIDE: EVERY COMMAND, EVERY FLAG
+# ══════════════════════════════════════════════════════════════
+#
+#   Run everything from: number-inventory-service/
+#   (the folder that contains docker-compose.yml)
+#
+#   QUICK REFERENCE — all 7 steps at a glance:
+#   ─────────────────────────────────────────────────────────────
+#   Step 0 │ docker info                           │ verify Docker Desktop is running
+#   Step 1 │ docker stop phone-sor-api             │ stop the old standalone container
+#          │ && docker rm phone-sor-api            │ delete it so the name is free
+#   Step 2 │ docker compose up -d --build          │ start everything, force rebuild
+#   Step 3 │ docker compose ps                     │ verify all 3 containers are Up
+#   Step 4 │ bash scripts/seed.sh                  │ inject test data
+#   Step 5 │ curl http://localhost:8000/numbers/   │ confirm API responds
+#          │ OR open http://localhost:8000/docs     │ (browser — Swagger UI)
+#   Step 6 │ docker compose logs -f api            │ watch live logs
+#   ─────────────────────────────────────────────────────────────
+#
+#   PART 13 QUICK REFERENCE — new lines in docker-compose.yml:
+#   ─────────────────────────────────────────────────────────────
+#   29092:29092                      │ second port — separates internal (9092)
+#                                    │ from external (29092) Kafka traffic
+#   KAFKA_LISTENERS                  │ which ports Kafka actually OPENS
+#   KAFKA_ADVERTISED_LISTENERS       │ which address Kafka TELLS clients to use
+#                                    │ one opens the door, the other says where the door is
+#   KAFKA_INTER_BROKER_LISTENER_NAME │ which listener brokers use to talk to each other
+#                                    │ required when you have more than one listener
+#   ─────────────────────────────────────────────────────────────
+
+
+# ── STEP 0: MAKE SURE DOCKER DESKTOP IS RUNNING ───────────────
+#
+#   Open Docker Desktop from Applications and wait ~15 seconds.
+#   Verify it is ready:
+#
+#     docker info
+#
+#   docker   = the Docker CLI tool
+#   info     = subcommand that prints the current state of the Docker engine
+#   If it prints a long list of info → Docker is running.
+#   If it says "Cannot connect to the Docker daemon" → Docker Desktop is not open yet.
+
+
+# ── STEP 1: CLEAN UP THE OLD CONTAINER ────────────────────────
+#
+#     docker stop phone-sor-api && docker rm phone-sor-api
+#
+#   docker       = the Docker CLI
+#   stop         = subcommand: send a graceful shutdown signal to the container
+#   phone-sor-api = the name of the container to stop (the one you ran earlier with docker run)
+#
+#   &&           = "AND THEN" operator in bash
+#                  runs the second command ONLY if the first one succeeded
+#                  if docker stop fails (container does not exist), docker rm is skipped
+#
+#   rm           = subcommand: remove (delete) the stopped container permanently
+#                  NOTE: this deletes the container instance, NOT the image
+#                  the image (phone-sor-api:v1) still exists and can be reused
+#
+#   WHY: docker compose will try to create a new container for the api service.
+#   If a container named phone-sor-api already exists, it fails with:
+#   "Conflict. The container name is already in use."
+
+
+# ── STEP 2: START EVERYTHING WITH DOCKER COMPOSE ──────────────
+#
+#     docker compose up -d --build
+#
+#   docker       = the Docker CLI
+#   compose      = the subcommand group for docker-compose operations
+#   up           = start all services defined in docker-compose.yml
+#                  if containers do not exist yet → creates them
+#                  if they already exist → starts them
+#
+#   -d           = --detach: run in background, terminal stays free
+#                  without -d: terminal is blocked with live logs from all 3 containers
+#                  with -d: you get your terminal back immediately
+#
+#   --build      = force rebuild the API image from the Dockerfile before starting
+#                  use this whenever you changed the Python code or Dockerfile
+#                  without --build: Docker uses the cached image (may be outdated)
+#
+#   What happens in the background:
+#     1. Docker reads docker-compose.yml
+#     2. Builds the api image from Dockerfile (because of --build)
+#     3. Downloads confluentinc/cp-zookeeper and confluentinc/cp-kafka if not cached
+#     4. Creates a shared private network for all 3 services
+#     5. Starts zookeeper first (no dependencies)
+#     6. Starts kafka after zookeeper is up (depends_on: zookeeper)
+#     7. Starts api after kafka is up (depends_on: kafka)
+
+
+# ── STEP 3: VERIFY EVERYTHING IS RUNNING ──────────────────────
+#
+#     docker compose ps
+#
+#   docker compose = same as above
+#   ps             = "process status": list all containers managed by this compose file
+#
+#   You should see 3 rows, all with status "Up" or "running":
+#     NAME                          STATUS
+#     number-inventory-service-api-1         Up
+#     number-inventory-service-kafka-1       Up
+#     number-inventory-service-zookeeper-1   Up
+#
+#   If any shows "Exit" or "Restarting" → something failed, check logs:
+#     docker compose logs -f <service-name>
+#     (replace <service-name> with api, kafka, or zookeeper)
+
+
+# ── STEP 4: INJECT TEST DATA ──────────────────────────────────
+#
+#     bash scripts/seed.sh
+#
+#   bash         = the interpreter that runs shell scripts
+#   scripts/seed.sh = path to the script (relative to where you are)
+#
+#   The script loops over data/synthetic_numbers.json and sends
+#   a POST /numbers request for each entry.
+#   At the end it prints a summary and shows all numbers with GET /numbers.
+
+
+# ── STEP 5: VERIFY THE API WORKS ──────────────────────────────
+#
+#   Option A — Browser (easiest):
+#     Open http://localhost:8000/docs
+#     Click GET /numbers → Try it out → Execute
+#     You should see the 15 phone numbers from synthetic_numbers.json
+#
+#   Option B — Terminal:
+#     curl http://localhost:8000/numbers/
+#
+#   curl           = command-line tool to make HTTP requests
+#   (no flags here: simple GET request, prints the JSON response)
+
+
+# ── STEP 6: WATCH LIVE LOGS ───────────────────────────────────
+#
+#     docker compose logs -f api
+#
+#   logs         = subcommand: show logs from a service
+#   -f           = --follow: keep streaming new log lines as they appear
+#                  without -f: prints existing logs and exits
+#   api          = the service name to show logs for (api, kafka, or zookeeper)
+#   Press Ctrl+C to stop following.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 13 — NEW LINES IN docker-compose.yml EXPLAINED
+# ══════════════════════════════════════════════════════════════
+#
+#   The file was updated with 3 new lines and 1 changed line.
+#   Here is what changed and why.
+
+#   NEW PORT: - "29092:29092"
+#
+#     A second port was added for Kafka. Why?
+#     Kafka now uses TWO separate ports for TWO different audiences:
+#
+#       9092  → for containers INSIDE the Docker network (your API talking to Kafka)
+#       29092 → for programs OUTSIDE Docker (your laptop, curl, Kafka tools)
+#
+#     Keeping them on different ports avoids a conflict where Kafka gets confused
+#     about which address to advertise to which caller.
+
+#   NEW LINE: KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+#
+#     Tells Kafka which ports to ACTUALLY OPEN and listen on.
+#     0.0.0.0 means "listen on all network interfaces" (accept connections from anywhere).
+#
+#     PLAINTEXT://0.0.0.0:9092     → opens port 9092 for internal Docker traffic
+#     PLAINTEXT_HOST://0.0.0.0:29092 → opens port 29092 for external laptop traffic
+#
+#     Difference from KAFKA_ADVERTISED_LISTENERS:
+#       KAFKA_LISTENERS         = which ports Kafka actually opens (binds to)
+#       KAFKA_ADVERTISED_LISTENERS = which address Kafka TELLS clients to use
+#       Both are needed. One opens the door, the other tells people where the door is.
+
+#   CHANGED LINE: KAFKA_ADVERTISED_LISTENERS
+#
+#     Before: PLAINTEXT_HOST://localhost:9092
+#     After:  PLAINTEXT_HOST://localhost:29092
+#
+#     The external address now points to port 29092 (matching the new port mapping).
+#     Your laptop connects to Kafka via localhost:29092.
+
+#   NEW LINE: KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#
+#     In a multi-broker cluster, Kafka brokers talk to each other.
+#     This line tells them which listener to use for that internal communication.
+#     Value is PLAINTEXT → use the internal Docker network listener (port 9092).
+#     Required when you define multiple listeners — without it Kafka does not know
+#     which one to use for broker-to-broker communication and refuses to start.
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS — DE CE SUNT DOUĂ PORTURI? (9092 și 29092)
+#  Demitizare completă pentru Kafka networking
+# ══════════════════════════════════════════════════════════════
+#
+#  Kafka networking le dă bătăi de cap chiar și inginerilor
+#  DevOps seniori — e cel mai confuz lucru din tot ecosistemul.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. DE CE SUNT DOUĂ PORTURI?                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Gândește-te că Kafka este o clădire de birouri securizată
+#  care are două intrări fizice:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Portul 9092 — Intrarea din interiorul curții               │
+#  │                                                             │
+#  │  Folosită DOAR de containerele Docker din aceeași rețea     │
+#  │  (api, registration-service etc.)                           │
+#  │                                                             │
+#  │  Când FastAPI trimite un mesaj:                             │
+#  │    → strigă în rețeaua Docker: "Trimit la kafka:9092!"      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Portul 29092 — Poarta de la stradă                         │
+#  │                                                             │
+#  │  Folosită de tine, de pe laptopul tău, din afara Docker.    │
+#  │  (scripturi de test locale, terminale, tools de debugging)  │
+#  │                                                             │
+#  │  Tu nu poți accesa "kafka" (nume intern Docker),            │
+#  │  dar poți accesa localhost:29092.                           │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CONCLUZIE:
+#  Separăm porturile ca să nu amestecăm traficul din interiorul
+#  Docker-ului cu traficul din exteriorul Docker-ului (laptop).
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. CE ÎNSEAMNĂ PLAINTEXT?                                  │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  PLAINTEXT = mesajele circulă necriptate (în text clar).
+#
+#  ┌──────────────────┬──────────────────────────────────────────┐
+#  │  Producție       │  Se folosește SSL sau SASL               │
+#  │  (bănci, etc.)   │  (mesaje criptate cu certificate/parole) │
+#  ├──────────────────┼──────────────────────────────────────────┤
+#  │  Local Dev       │  PLAINTEXT — fără criptare               │
+#  │  (calculatorul   │  Nu avem nevoie de securitate complicată  │
+#  │  tău)            │  și vrem ca totul să meargă rapid.       │
+#  └──────────────────┴──────────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. CE FAC VARIABILELE LUNGI? (și cum le reții)             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Adevărul de inginer DevOps: NIMENI NU LE MEMOREAZĂ!
+#
+#  Niciun DevOps nu le scrie din memorie de la zero.
+#  Toată lumea dă Copy-Paste din documentație sau proiecte
+#  anterioare. Ce trebuie să înțelegi e doar rolul lor:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  KAFKA_LISTENERS                                            │
+#  │  (Unde ascultă Kafka?)                                      │
+#  │                                                             │
+#  │  Îi spune lui Kafka: "Deschide-ți urechile pe toate         │
+#  │  adresele interne (0.0.0.0) la portul 9092 și 29092."       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  KAFKA_ADVERTISED_LISTENERS                                 │
+#  │  (Ce adresă le dă clienților?)                              │
+#  │                                                             │
+#  │  Când un serviciu se conectează prima dată, Kafka îi dă     │
+#  │  o "carte de vizită" cu adresa corectă pentru viitor:       │
+#  │                                                             │
+#  │  → Containerelor Docker:  PLAINTEXT://kafka:9092            │
+#  │  → Laptopului tău:        PLAINTEXT_HOST://localhost:29092  │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP                       │
+#  │  (Ce securitate folosim la fiecare poartă?)                 │
+#  │                                                             │
+#  │  Îi spune lui Kafka: "Atât pentru PLAINTEXT cât și pentru   │
+#  │  PLAINTEXT_HOST, folosește conexiune simplă, necriptată."   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  REGULA DE AUR — Răspunsul perfect la interviu DevOps       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  "Am configurat un dual-listener în Docker Compose:
+#   un port intern (kafka:9092) pentru comunicarea între
+#   microserviciile din rețeaua Docker și un port extern
+#   mapat pe localhost:29092 pentru debugging sau aplicații
+#   care rulează direct pe mașina gazdă."
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 2 — DE CE AI NEVOIE DE PORTUL 29092?
+#  (dacă oricum totul e în Docker)
+# ══════════════════════════════════════════════════════════════
+#
+#  Răspunsul scurt: Docker e grozav pentru producție, dar uneori
+#  îți îngreunează munca zilnică când scrii și testezi cod.
+#
+#  Iată cele 3 motive principale:
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. VITEZĂ LA SCRIS COD (fără docker build de 100 de ori)  │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Varianta A — Doar în Docker:
+#    Scrii 2 linii de cod → oprești containerul → docker compose
+#    build → aștepți → docker compose up → 1-2 minute pierdute
+#    la fiecare modificare.
+#
+#  Varianta B — Cu portul 29092 (recomandat în dev):
+#    Kafka rulează liniștit în Docker.
+#    Tu rulezi scriptul Python direct din VS Code (python main.py)
+#    conectat la localhost:29092.
+#    Modifici o linie, apeși Save, re-rulezi — o secundă.
+#    Zero timp pierdut.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. DEBUGGING CU BREAKPOINTS                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Când codul are un bug complex:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  În afara Docker:                                           │
+#  │    Pui un Breakpoint în VS Code / PyCharm.                  │
+#  │    Scriptul se conectează la localhost:29092.               │
+#  │    Aplicația se oprește la linia respectivă și poți vedea   │
+#  │    ce e în variabile, pas cu pas.                           │
+#  │                                                             │
+#  │  Înăuntrul Docker:                                          │
+#  │    Mult mai complicat — trebuie remote debugger, config     │
+#  │    suplimentar, etc.                                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. SCRIPTURI DE TEST RAPIDE ("One-Off")                    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Sistemul nu merge. Vrei să verifici dacă e Kafka sau codul.
+#
+#  Cu portul 29092:
+#    Scrii un test_send.py de 5 linii pe laptop.
+#    python test_send.py → răspuns în 3 secunde.
+#
+#  Fără portul 29092:
+#    Trebuie Dockerfile pentru scriptul de test, adăugat în
+#    docker-compose.yml, configurat rețeaua... o nebunie întreagă
+#    pentru un test simplu.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  REZUMATUL FILOSOFIEI DevOps                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Kafka rulează în Docker pentru că e greu de instalat local
+#  (are nevoie de Java, dependințe, etc.)
+#
+#  Aplicațiile tale le testezi mai întâi direct pe laptop
+#  (conectate la Kafka din Docker prin localhost:29092).
+#
+#  Abia când ești 100% sigur că funcționează, le împachetezi
+#  și pe ele în Docker!
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 3 — CUM ȘTIE APLICAȚIA CÂND ȘI CUM SĂ SE CONECTEZE?
+#  Environment Variables + Ce testezi concret pe laptop
+# ══════════════════════════════════════════════════════════════
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. CUM ȘTIE APLICAȚIA CE PORT SĂ FOLOSEASCĂ?               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Secretul: Variabilele de Mediu (Environment Variables).
+#  Codul Python NU scrie adresa hardcoded.
+#  În schimb, o CITEȘTE din sistem:
+#
+#    import os
+#
+#    # Caută adresa Kafka într-o variabilă de mediu.
+#    # Dacă nu o găsește → folosește implicit localhost:29092
+#    KAFKA_SERVER = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
+#
+#    print(f"Mă conectez la: {KAFKA_SERVER}")
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Cazul B — Rulezi pe laptop (python main.py):               │
+#  │                                                             │
+#  │  Nu i-ai trimis nicio variabilă specială → Python alege     │
+#  │  valoarea implicită: localhost:29092                        │
+#  │                                                             │
+#  │  Conexiunea merge de pe laptop în Docker prin               │
+#  │  „poarta de la stradă".                                     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Cazul A — Rulezi în Docker (docker compose up):            │
+#  │                                                             │
+#  │  În docker-compose.yml ai setat:                            │
+#  │    KAFKA_BOOTSTRAP_SERVERS: kafka:9092                      │
+#  │                                                             │
+#  │  Python citește această variabilă, ignoră localhost și      │
+#  │  se conectează prin rețeaua internă la kafka:9092.          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Același cod Python funcționează în ambele locuri —
+#  doar „adresa de contact" se schimbă din exterior!
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. CE POȚI TESTA CONCRET PE LAPTOP? (3 teste reale)        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Imaginează-ți că ai scris codul pentru Registration Service.
+#  Înainte să faci imaginea Docker, vrei să testezi logica.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  TESTUL 1 — "Răspunde corect la date stricate?"             │
+#  │  (Validarea)                                                │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Scenariu: Ce se întâmplă dacă vine un eveniment greșit?    │
+#  │  Ex: în loc de număr, vine textul "abracadabra".            │
+#  │                                                             │
+#  │  Cum testezi pe laptop:                                     │
+#  │    1. Rulezi: python main.py                                │
+#  │    2. Trimiți "abracadabra" din Kafka UI (browser)          │
+#  │    3. Vezi în consolă VS Code: ValueError!                  │
+#  │    4. Adaugi try/except, Save, re-rulezi — 5 secunde.       │
+#  │       (Prin Docker: 2 minute la fiecare re-build.)          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  TESTUL 2 — "Semnătura HMAC iese cum trebuie?"              │
+#  │  (Logica de business)                                       │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Scenariu: Aplicația trebuie să semneze un număr cu o       │
+#  │  cheie secretă și să genereze un cod unic.                  │
+#  │                                                             │
+#  │  Cum testezi pe laptop:                                     │
+#  │    1. Pui un Breakpoint în VS Code la linia HMAC            │
+#  │    2. Rulezi în modul Debug                                 │
+#  │    3. Codul se oprește — vezi exact valoarea secretului,    │
+#  │       a numărului, și ce rezultat a ieșit                   │
+#  │    4. Poți modifica datele în timp real                     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  TESTUL 3 — "Mesajul ajunge în topic-ul corect?"            │
+#  │  (Fluxul complet)                                           │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Scenariu: Vrei să verifici că serviciul citește din        │
+#  │  number-events și publică rezultatul în registration-status.│
+#  │                                                             │
+#  │  Cum testezi pe laptop:                                     │
+#  │    1. Rulezi aplicația pe laptop (→ localhost:29092)        │
+#  │    2. Arunci un event de test în number-events              │
+#  │    3. Deschizi http://localhost:8080 (Kafka UI)             │
+#  │    4. Dai refresh pe topicul registration-status            │
+#  │    → Dacă vezi mesajul semnat: BINGO! Funcționează 100%.   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  MORALA — Procesul complet de dezvoltare DevOps             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Pasul 1 — LOCAL:
+#    Scrii codul în VS Code, testezi pe laptop conectat la
+#    Kafka prin portul 29092. Repari toate bug-urile rapid.
+#
+#  Pasul 2 — DOCKER:
+#    Când totul merge perfect, scrii Dockerfile-ul, pui
+#    serviciul în docker-compose.yml pe portul intern 9092
+#    și pornești tot sistemul ca o mașinărie automată!

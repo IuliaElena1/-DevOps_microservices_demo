@@ -1,0 +1,779 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Registration Service
+#  Ce este, de ce avem nevoie de el, și ce construim
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/b6383acc-d2d0-49a4-bb57-89e30520eb64
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — CE ÎNSEAMNĂ "ATESTARE" (ATTESTATION)?
+# ══════════════════════════════════════════════════════════════
+#
+#  În telecomunicații (ex: standardele STIR/SHAKEN), când activezi
+#  un număr de telefon, un furnizor autorizat trebuie să "semneze"
+#  acel număr folosind o cheie secretă.
+#
+#  Semnătura asta demonstrează că:
+#    - Numărul aparține rețelei tale
+#    - Cineva autorizat a confirmat că numărul e activ
+#
+#  ANALOGIE SIMPLĂ:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Gândește-te la un notar.                                   │
+#  │  Când cumperi o casă, notarul pune ștampila lui pe contract. │
+#  │  Asta dovedește că tranzacția e autentică și legală.         │
+#  │  Registration Service = notarul digital pentru numere.       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  În proiectul nostru, "furnizorul extern" e simulat (nu există
+#  cu adevărat). Serviciul nostru MIMEAZĂ comportamentul lui.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — CE FACE REGISTRATION SERVICE?
+# ══════════════════════════════════════════════════════════════
+#
+#  Registration Service este un serviciu STATELESS (fără bază
+#  de date proprie). Asta înseamnă că nu stochează nimic —
+#  primește un număr, îl semnează (sau refuză), și trimite
+#  rezultatul înapoi.
+#
+#  FLUXUL COMPLET:
+#
+#  1. Ascultă pe Kafka când un număr devine ACTIVE sau RELEASED
+#  2. Generează o semnătură digitală (HMAC) folosind o cheie secretă
+#  3. Simulează un eșec: refuză numerele care se termină cu cifra 8
+#  4. Publică înapoi în Kafka rezultatul (succes sau eșec)
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Inventory Service ──── STATUS_CHANGED (ACTIVE) ────►      │
+#  │                                                 Kafka       │
+#  │                                                   │         │
+#  │                                                   ▼         │
+#  │                                      Registration Service   │
+#  │                                       (semnează sau refuză) │
+#  │                                                   │         │
+#  │                                                   ▼         │
+#  │  Inventory Service ◄─── REGISTERED / FAILED ─── Kafka      │
+#  │  (salvează signature în DB)                                  │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — REGULA CHEIE DE ARHITECTURĂ (IMPORTANT!)
+# ══════════════════════════════════════════════════════════════
+#
+#  Statusul numărului NU depinde de atestare!
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Numărul rămâne ACTIVE în baza de date CHIAR DACĂ           │
+#  │  atestarea a eșuat.                                         │
+#  │                                                             │
+#  │  Semnătura este doar un FAPT (fact) înregistrat ulterior.   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  DE CE?
+#  Pentru că statusul e controlat de Port Order Service (un alt
+#  serviciu). Registration Service are un singur job: să semneze.
+#  Nu are dreptul să schimbe statusul numărului.
+#
+#  ANALOGIE:
+#  Când cumperi o casă, notarul pune ștampila. Dacă notarul
+#  lipsește, casa tot există și e a ta. Ștampila e un document
+#  în plus, nu condiția de existență a casei.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — CE ESTE HMAC? (SEMNĂTURA DIGITALĂ)
+# ══════════════════════════════════════════════════════════════
+#
+#  HMAC = Hash-based Message Authentication Code
+#
+#  În română: un cod de autentificare bazat pe hash și o cheie secretă.
+#
+#  CUM FUNCȚIONEAZĂ:
+#
+#    Input 1: Mesajul (în cazul nostru: numărul de telefon, ex: "+40712345678")
+#    Input 2: O cheie secretă (ex: "secret123")
+#    Output:  Un șir unic de caractere (hash), ex: "a3f5b892c..."
+#
+#  PROPRIETĂȚI IMPORTANTE:
+#    ✅ Același input + aceeași cheie = același output (determinist)
+#    ✅ Input diferit = output complet diferit
+#    ✅ Fără cheie nu poți recrea hash-ul (securitate)
+#    ❌ Nu poți afla cheia din hash (one-way)
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Imaginează-ți că ai un sigiliu unic de ceară (cheia) și    │
+#  │  amprenta ta (mesajul). Rezultatul — ceara cu amprenta —    │
+#  │  dovedește că TU ai sigilat acel document specific.         │
+#  │  Altcineva cu alt sigiliu nu poate reproduce exact același   │
+#  │  rezultat.                                                   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ÎN COD PYTHON:
+#
+#    import hmac
+#    import hashlib
+#
+#    key = "secret123"
+#    message = "+40712345678"
+#
+#    signature = hmac.new(
+#        key.encode("utf-8"),       # cheia secretă ca bytes
+#        message.encode("utf-8"),   # mesajul ca bytes
+#        hashlib.sha256             # algoritmul (SHA256 = cel mai comun)
+#    ).hexdigest()                  # .hexdigest() = convertește rezultatul în text hex
+#
+#    # signature = "a3f5b892c7d4e8f1..."  (64 caractere hex)
+#
+#  DE CE HEXDIGEST?
+#    .digest()    → returnează bytes bruti (greu de citit, ex: b'\xa3\xf5...')
+#    .hexdigest() → returnează un string hex (ușor de citit și stocat în DB)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — CELE 3 METODE PRINCIPALE DIN REGISTRATION SERVICE
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  METODA 1: sign(e164: str) -> str | None                    │
+#  │                                                             │
+#  │  Preia numărul de telefon.                                  │
+#  │  Dacă se termină în 8 → returnează None (eșec simulat)      │
+#  │  Altfel → returnează hash-ul HMAC (semnătura)               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  METODA 2: register(e164: str)                              │
+#  │                                                             │
+#  │  Apelează sign(e164).                                       │
+#  │  Dacă semnătura există → emite evenimentul REGISTERED        │
+#  │  Dacă semnătura e None → emite evenimentul REGISTRATION_FAILED│
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  METODA 3: deregister(e164: str)                            │
+#  │                                                             │
+#  │  Numărul a fost eliberat (RELEASED).                        │
+#  │  Printează un mesaj că numărul a fost eliminat de la provider│
+#  │  Emite evenimentul DEREGISTERED (fără semnătură)            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  DE CE E IMPORTANTĂ REGULA CU CIFRA 8?
+#  Pentru că în development trebuie să poți testa atât scenariile
+#  de succes cât și cele de eșec. Dacă totul ar merge mereu bine,
+#  nu ai ști dacă codul de tratare a erorilor funcționează.
+#  Cifra 8 e o convenție arbitrară — în producție regula reală
+#  ar veni de la furnizorul extern.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — STRATEGIA DE IMPLEMENTARE: 2 FAZE
+# ══════════════════════════════════════════════════════════════
+#
+#  Nu construim totul odată. Mergem incremental.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  FAZA 1: PROTOTIP HTTP (Testare rapidă a logicii)           │
+#  │                                                             │
+#  │  Creăm un FastAPI nou cu 2 endpoint-uri HTTP simple:        │
+#  │    POST /register    → testăm logica HMAC + regula cifrei 8 │
+#  │    POST /deregister  → testăm deregistrarea                 │
+#  │                                                             │
+#  │  Avantaj: Putem testa din Swagger/Postman direct.           │
+#  │  Nu avem nevoie de Kafka încă.                              │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  FAZA 2: INTEGRARE COMPLETĂ PRIN KAFKA                      │
+#  │                                                             │
+#  │  Odată ce logica e testată, trecem pe event-driven:         │
+#  │                                                             │
+#  │  Inventory Service                                          │
+#  │      │ emite STATUS_CHANGED pe Kafka                        │
+#  │      ▼                                                      │
+#  │  Registration Service (ascultă Kafka)                       │
+#  │      │ procesează HMAC                                      │
+#  │      ▼                                                      │
+#  │  Kafka (topic: attestation-events)                          │
+#  │      │ REGISTERED / REGISTRATION_FAILED / DEREGISTERED      │
+#  │      ▼                                                      │
+#  │  Inventory Service (ascultă Kafka, salvează signature în DB) │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  DE CE 2 FAZE?
+#  Kafka adaugă complexitate: trebuie să rulezi brokeri, consumers,
+#  să aștepți mesajele. HTTP e simplu: trimiți request, primești
+#  răspuns imediat. Deci verifici mai întâi că logica e corectă
+#  (Faza 1), și abia apoi adaugi infrastructura (Faza 2).
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — CUM ARATĂ EVENIMENTELE KAFKA?
+# ══════════════════════════════════════════════════════════════
+#
+#  INTRARE — Inventory Service emite pe topicul "number-events":
+#
+#    {
+#      "event": "STATUS_CHANGED",
+#      "e164": "+40712345678",
+#      "old_status": "RESERVED",
+#      "new_status": "ACTIVE",
+#      "version": 2
+#    }
+#
+#  IEȘIRE — Registration Service emite pe "attestation-events":
+#
+#  Cazul 1: SUCCES (numărul se termină în 7, de exemplu)
+#    {
+#      "event_type": "REGISTERED",
+#      "e164": "+40712345677",
+#      "signature": "a3f5b892c..."
+#    }
+#
+#  Cazul 2: EȘEC SIMULAT (numărul se termină în 8)
+#    {
+#      "event_type": "REGISTRATION_FAILED",
+#      "e164": "+40712345678",
+#      "signature": null
+#    }
+#
+#  Cazul 3: ELIBERARE (numărul a primit statusul RELEASED)
+#    {
+#      "event_type": "DEREGISTERED",
+#      "e164": "+40712345678",
+#      "signature": null
+#    }
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — CE TREBUIE MODIFICAT ÎN CODUL EXISTENT?
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  ÎN INVENTORY SERVICE:                                      │
+#  │                                                             │
+#  │  1. Adaugi câmpul "signature" (string, nullable) în         │
+#  │     modelul PhoneNumber și în baza de date                  │
+#  │                                                             │
+#  │  2. Adaugi un Kafka Consumer care ascultă "attestation-events"│
+#  │     și când primește REGISTERED / REGISTRATION_FAILED,      │
+#  │     actualizează DOAR câmpul signature pentru acel număr    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  ÎN DOCKER COMPOSE:                                         │
+#  │                                                             │
+#  │  Adaugi serviciul "registration-service" alături de:        │
+#  │    - inventory-service (API-ul existent)                    │
+#  │    - kafka + zookeeper                                      │
+#  │    - kafka-ui                                               │
+#  │    - postgres (baza de date pentru inventory)               │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — CODUL PENTRU FUNCȚIA DE SEMNARE HMAC
+# ══════════════════════════════════════════════════════════════
+#
+#  Aceasta este funcția "sign" — inima Registration Service.
+#  Fișier: registration-service/app/signer.py
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │                                                             │
+#  │  import hmac                                                │
+#  │  import hashlib                                             │
+#  │  import os                                                  │
+#  │                                                             │
+#  │  SECRET_KEY = os.getenv("SECRET_PROVIDER_KEY", "secret123") │
+#  │                                                             │
+#  │  def sign(e164: str) -> str | None:                         │
+#  │      # Regula cifrei 8: simulăm un eșec de business         │
+#  │      if e164.endswith("8"):                                 │
+#  │          return None                                        │
+#  │                                                             │
+#  │      # Generăm semnătura HMAC-SHA256                        │
+#  │      return hmac.new(                                       │
+#  │          SECRET_KEY.encode("utf-8"),                        │
+#  │          e164.encode("utf-8"),                              │
+#  │          hashlib.sha256                                     │
+#  │      ).hexdigest()                                          │
+#  │                                                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  LINIE CU LINIE:
+#
+#  import hmac
+#    → Modulul Python standard pentru HMAC. Nu trebuie instalat.
+#      Este deja inclus în Python.
+#
+#  import hashlib
+#    → Modulul Python standard pentru algoritmi hash (MD5, SHA256, etc.)
+#      HMAC are nevoie de el pentru a ști ce algoritm să folosească.
+#
+#  import os
+#    → Pentru os.getenv() — citim variabila de mediu SECRET_PROVIDER_KEY.
+#      Dacă nu există, folosim "secret123" ca valoare default.
+#
+#  SECRET_KEY = os.getenv("SECRET_PROVIDER_KEY", "secret123")
+#    → Citim cheia secretă din environment (configurabilă fără a modifica codul).
+#      În producție, această cheie ar fi stocată securizat (ex: AWS Secrets Manager).
+#
+#  def sign(e164: str) -> str | None:
+#    → Funcția primește un număr de telefon și returnează fie:
+#      - str  → o semnătură (dacă atestarea reușește)
+#      - None → nimic (dacă atestarea eșuează)
+#
+#  if e164.endswith("8"):
+#    → endswith("8") = verificăm dacă ultimul caracter din string e "8"
+#      Exemple:
+#        "+40712345678".endswith("8") → True  → eșec
+#        "+40712345677".endswith("8") → False → continuăm
+#
+#  return None
+#    → Eșec simulat. Furnizorul a refuzat să semneze.
+#
+#  hmac.new(SECRET_KEY.encode("utf-8"), e164.encode("utf-8"), hashlib.sha256)
+#    → Creăm obiectul HMAC:
+#      Param 1: cheia secretă ca bytes  (encode("utf-8") = string → bytes)
+#      Param 2: mesajul ca bytes        (numărul de telefon)
+#      Param 3: algoritmul              (SHA256 = Secure Hash Algorithm 256-bit)
+#
+#  .hexdigest()
+#    → Calculează hash-ul și îl convertește în string hexadecimal.
+#      Rezultat: un string de 64 caractere (ex: "a3f5b892c7d4...")
+#      Hex = sistemul numeric în baza 16 (cifre 0-9 și litere a-f)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 10 — CODUL PENTRU REGISTER ȘI DEREGISTER
+# ══════════════════════════════════════════════════════════════
+#
+#  Fișier: registration-service/app/registrar.py
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │                                                             │
+#  │  from .signer import sign                                   │
+#  │  from . import kafka_producer                               │
+#  │                                                             │
+#  │  async def register(e164: str):                             │
+#  │      signature = sign(e164)                                 │
+#  │                                                             │
+#  │      if signature:                                          │
+#  │          await kafka_producer.publish("attestation-events", {│
+#  │              "event_type": "REGISTERED",                    │
+#  │              "e164": e164,                                  │
+#  │              "signature": signature,                        │
+#  │          })                                                 │
+#  │      else:                                                  │
+#  │          await kafka_producer.publish("attestation-events", {│
+#  │              "event_type": "REGISTRATION_FAILED",           │
+#  │              "e164": e164,                                  │
+#  │              "signature": None,                             │
+#  │          })                                                 │
+#  │                                                             │
+#  │  async def deregister(e164: str):                           │
+#  │      print(f"[Registration] Removed {e164} from provider.") │
+#  │      await kafka_producer.publish("attestation-events", {   │
+#  │          "event_type": "DEREGISTERED",                      │
+#  │          "e164": e164,                                      │
+#  │          "signature": None,                                 │
+#  │      })                                                     │
+#  │                                                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  LINIE CU LINIE:
+#
+#  from .signer import sign
+#    → Importăm funcția sign din același pachet (fișierul signer.py).
+#      Punctul din față (".signer") înseamnă "din același folder".
+#
+#  signature = sign(e164)
+#    → Apelăm sign și salvăm rezultatul.
+#      Fie e un string (semnătura), fie None (eșec).
+#
+#  if signature:
+#    → Dacă signature e un string non-gol → truthy → succes
+#      Dacă signature e None              → falsy  → eșec
+#      (în Python, None și "" sunt falsy, orice string non-gol e truthy)
+#
+#  await kafka_producer.publish(...)
+#    → Trimitem evenimentul pe Kafka. Funcția e async, deci folosim await.
+#      Același producer pe care l-am construit pentru Inventory Service.
+#
+#  print(f"[Registration] Removed {e164} from provider.")
+#    → Pentru deregister nu avem logică complexă — doar confirmăm că
+#      știm că numărul a fost eliberat și îl notificăm pe oricine ascultă.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 11 — FAZA 1: ENDPOINT-URILE HTTP PENTRU TESTARE
+# ══════════════════════════════════════════════════════════════
+#
+#  Pentru a testa logica fără Kafka, creăm endpoint-uri HTTP simple.
+#  Fișier: registration-service/app/main.py
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │                                                             │
+#  │  from fastapi import FastAPI                                │
+#  │  from pydantic import BaseModel                             │
+#  │  from .signer import sign                                   │
+#  │                                                             │
+#  │  app = FastAPI(title="Registration Service", version="0.1.0")│
+#  │                                                             │
+#  │  class NumberRequest(BaseModel):                            │
+#  │      e164: str                                              │
+#  │                                                             │
+#  │  @app.post("/register")                                     │
+#  │  def register_endpoint(payload: NumberRequest):             │
+#  │      signature = sign(payload.e164)                         │
+#  │      if signature:                                          │
+#  │          return {"event_type": "REGISTERED",                │
+#  │                  "e164": payload.e164,                      │
+#  │                  "signature": signature}                    │
+#  │      return {"event_type": "REGISTRATION_FAILED",           │
+#  │              "e164": payload.e164,                          │
+#  │              "signature": None}                             │
+#  │                                                             │
+#  │  @app.post("/deregister")                                   │
+#  │  def deregister_endpoint(payload: NumberRequest):           │
+#  │      return {"event_type": "DEREGISTERED",                  │
+#  │              "e164": payload.e164,                          │
+#  │              "signature": None}                             │
+#  │                                                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CUM TESTEZI:
+#
+#    1. Pornești serviciul:
+#       cd registration-service && uvicorn app.main:app --reload --port 8001
+#
+#    2. Deschizi Swagger la: http://localhost:8001/docs
+#
+#    3. Testezi cu un număr care se termină în 7 (succes):
+#       POST /register
+#       Body: { "e164": "+40712345677" }
+#       Răspuns: { "event_type": "REGISTERED", "signature": "a3f5..." }
+#
+#    4. Testezi cu un număr care se termină în 8 (eșec):
+#       POST /register
+#       Body: { "e164": "+40712345678" }
+#       Răspuns: { "event_type": "REGISTRATION_FAILED", "signature": null }
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 12 — STRUCTURA FOLDERELOR PENTRU REGISTRATION SERVICE
+# ══════════════════════════════════════════════════════════════
+#
+#  registration-service/
+#  ├── Dockerfile
+#  ├── requirements.txt          ← fastapi, uvicorn, aiokafka
+#  └── app/
+#      ├── __init__.py
+#      ├── main.py               ← FastAPI + endpoint-uri HTTP (Faza 1)
+#      ├── signer.py             ← funcția sign() cu HMAC + regula cifrei 8
+#      ├── registrar.py          ← register() și deregister() (Faza 2)
+#      └── kafka_producer.py     ← același producer ca la Inventory Service
+#
+#  OBSERVAȚIE: Registration Service e un proiect separat, NU în
+#  folderul number-inventory-service. Vor fi două foldere sibling:
+#    DevOps/
+#    ├── number-inventory-service/    ← existent
+#    └── registration-service/        ← de creat
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 13 — MODIFICAREA DOCKER COMPOSE PENTRU AL DOILEA SERVICIU
+# ══════════════════════════════════════════════════════════════
+#
+#  Avem două opțiuni:
+#
+#  OPȚIUNEA A: docker-compose.yml comun la nivel de DevOps/
+#    Ambele servicii + Kafka într-un singur fișier.
+#    Avantaj: pornești totul cu un singur `docker compose up`.
+#
+#  OPȚIUNEA B: docker-compose.yml separat per serviciu
+#    Fiecare serviciu are propriul compose.
+#    Avantaj: poți porni serviciile independent.
+#
+#  Pentru internship → OPȚIUNEA A e mai simplă.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  services:                                                  │
+#  │    zookeeper: ...                                           │
+#  │    kafka: ...                                               │
+#  │    kafka-ui: ...                                            │
+#  │                                                             │
+#  │    inventory-service:             ← serviciul existent      │
+#  │      build: ./number-inventory-service                      │
+#  │      ports: ["8000:8000"]                                   │
+#  │      environment:                                           │
+#  │        KAFKA_BOOTSTRAP_SERVERS: kafka:9092                  │
+#  │      depends_on: [kafka]                                    │
+#  │                                                             │
+#  │    registration-service:         ← serviciul nou            │
+#  │      build: ./registration-service                          │
+#  │      ports: ["8001:8001"]                                   │
+#  │      environment:                                           │
+#  │        KAFKA_BOOTSTRAP_SERVERS: kafka:9092                  │
+#  │        SECRET_PROVIDER_KEY: secret123                       │
+#  │      depends_on: [kafka]                                    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  DE CE PORT 8001?
+#    Inventory Service rulează pe 8000. Dacă am pune și Registration
+#    Service pe 8000, ar fi conflict (două servicii pe același port).
+#    8001 e portul următor disponibil.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 14 — REZUMAT: CE CONSTRUIM ȘI ÎN CE ORDINE
+# ══════════════════════════════════════════════════════════════
+#
+#  PASUL 1: Creăm folderul registration-service/
+#    - Dockerfile (similar cu Inventory Service)
+#    - requirements.txt (fastapi, uvicorn, aiokafka)
+#    - app/__init__.py
+#    - app/signer.py (funcția sign cu HMAC)
+#    - app/main.py (endpoint-uri HTTP pentru Faza 1)
+#
+#  PASUL 2: Testăm logica HMAC prin HTTP
+#    - Rulăm local: uvicorn app.main:app --port 8001
+#    - Testăm cu numere care se termină în 7 (succes)
+#    - Testăm cu numere care se termină în 8 (eșec)
+#    - Verificăm că semnătura e un string hex de 64 caractere
+#
+#  PASUL 3: Adăugăm Kafka (Faza 2)
+#    - app/kafka_producer.py (producătorul Kafka)
+#    - app/registrar.py (register + deregister)
+#    - Modificăm main.py să asculte Kafka în loc de HTTP
+#
+#  PASUL 4: Actualizăm docker-compose.yml
+#    - Adăugăm serviciul registration-service
+#    - Testăm că ambele servicii comunică prin Kafka
+#
+#  PASUL 5: Adăugăm consumer în Inventory Service
+#    - Câmpul signature în model
+#    - Consumer pentru attestation-events
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 15 — DESCRIEREA OFICIALĂ A SERVICIULUI (din cerință)
+# ══════════════════════════════════════════════════════════════
+#
+#  Registration Service - attestation sync
+#
+#  "The bridge to the outside world."
+#
+#  Este un serviciu complet stateless (fără bază de date proprie).
+#  Reacționează când un număr devine activ sau este eliberat,
+#  apelează furnizorul de atestare (simulat), și raportează
+#  ce s-a întâmplat ca fapte (facts).
+#
+#  Semnătura este un HMAC peste numărul de telefon.
+#  Doar cheia furnizorului o poate produce — acesta este
+#  întreg sensul atestării.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 16 — CELE 3 METODE (din cerință)
+# ══════════════════════════════════════════════════════════════
+#
+#  Ai nevoie de aproximativ 3 metode:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. sign(e164)                                              │
+#  │                                                             │
+#  │  Conține cheia privată (hardcodată în configurare).         │
+#  │  Creează hash-ul semnat (HMAC).                             │
+#  │  Refuză să semneze numere care se termină cu cifra 8        │
+#  │  (pentru a putea testa scenariile de eșec).                 │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. register(e164)                                          │
+#  │                                                             │
+#  │  Apelează sign() ca funcție.                                │
+#  │  Dacă sign returnează semnătură → succes.                   │
+#  │  Dacă sign returnează None → eșec.                          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. deregister(e164)                                        │
+#  │                                                             │
+#  │  Doar printează un mesaj — nu avem un provider real.        │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 17 — STRATEGIA DE IMPLEMENTARE (din cerință)
+# ══════════════════════════════════════════════════════════════
+#
+#  FAZA 1 — Doar HTTP (fără Kafka):
+#    Creezi un serviciu FastAPI/REST simplu.
+#    Conectezi logica de semnare prin HTTP direct.
+#    Suficient ca să dovedești că logica HMAC funcționează
+#    (cazul de succes și cazul de eșec).
+#
+#  FAZA 2 — Kafka (integrare completă):
+#    Deoarece Number Inventory Service există deja în acest punct,
+#    creezi un docker-compose cu ambele servicii + Kafka.
+#    Registration Service consumă de pe topicul "number-events"
+#    și publică rezultatele înapoi.
+#    Înlocuiești apelurile HTTP temporare cu fluxul real de evenimente.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 18 — EVENIMENTELE KAFKA (tabel oficial din cerință)
+# ══════════════════════════════════════════════════════════════
+#
+#  Evenimente pe care Registration Service le PUBLICĂ:
+#
+#  ┌──────────────────────┬──────────────────────────────────────────┬───────────────────────┐
+#  │ Eveniment            │ Când se întâmplă                         │ Câmpuri               │
+#  ├──────────────────────┼──────────────────────────────────────────┼───────────────────────┤
+#  │ REGISTERED           │ Atestare reușită pentru un număr ACTIVE  │ e164, signature       │
+#  │ REGISTRATION_FAILED  │ Furnizorul a refuzat (simulat: ends în 8)│ e164, signature: null │
+#  │ DEREGISTERED         │ Număr RELEASED eliminat de la furnizor   │ e164, signature: null │
+#  └──────────────────────┴──────────────────────────────────────────┴───────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 19 — CE FACE INVENTORY SERVICE CU ACESTE EVENIMENTE
+# ══════════════════════════════════════════════════════════════
+#
+#  Inventory Service consumă evenimentele de mai sus și
+#  înregistrează rezultatul în coloana "signature" din baza de date.
+#
+#  REGULĂ CHEIE (repetată din cerință):
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Signature este un FAPT despre număr —                      │
+#  │  NU un stat de lifecycle.                                   │
+#  │                                                             │
+#  │  Numărul este ACTIVE indiferent dacă atestarea a reușit     │
+#  │  sau nu. Semnătura e o informație în plus, nu o condiție.   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Cu alte cuvinte:
+#    - ACTIVE + signature = număr activ și atestat ✅
+#    - ACTIVE + signature null = număr activ, atestarea a eșuat ⚠️
+#    - Ambele sunt valide. Numărul rămâne ACTIVE în ambele cazuri.
+#    - Actualizăm signature în storage când primim REGISTERED/FAILED
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 20 — DIAGRAMA ARHITECTURII (Figure 3)
+#  Imaginea originală: docs/diagrams/registration-service-architecture.png
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────────┐
+#  │  KAFKA                                                          │
+#  │  ┌─────────────────┐        ┌──────────────────────┐           │
+#  │  │  number-events  │        │  registration-status │           │
+#  │  └────────┬────────┘        └──────────▲───────────┘           │
+#  └───────────┼─────────────────────────────┼───────────────────────┘
+#              │ ACTIVE,                     │ REGISTERED,
+#              │ RELEASED                    │ REGISTRATION_FAILED,
+#              │                             │ DEREGISTERED
+#              │                             │
+#  ┌───────────▼─────────────────────────────┼───────────────────────┐
+#  │  REGISTRATION SERVICE                   │                       │
+#  │  (NO DB, NO HTTP — THE CONSUMER LOOP IS THE PROGRAM)            │
+#  │                                                                 │
+#  │  ┌──────────────────────────────────────┘                       │
+#  │  │  consumer group: registration                                │
+#  │  │  (ascultă number-events)                                     │
+#  │  └──────────────┬───────────────────────────────────────────────┘
+#  │                 │ sign (ACTIVE) /
+#  │                 │ deregister (RELEASED)
+#  │                 ▼
+#  │  ┌──────────────────────────────────┐
+#  │  │  attestation provider (stub)     │
+#  │  │  HMAC sign / deregister          │
+#  │  └──────────────────────────────────┘
+#  └─────────────────────────────────────────────────────────────────┘
+#
+#
+#  CE ÎNVEȚI DIN ACEASTĂ DIAGRAMĂ:
+#
+#  1. TOPICURI KAFKA:
+#     - "number-events"       → topicul de INTRARE (produs de Inventory Service)
+#     - "registration-status" → topicul de IEȘIRE  (produs de Registration Service)
+#
+#     ⚠️  CORECȚIE IMPORTANTĂ față de notițele anterioare:
+#     Topicul de ieșire se numește "registration-status",
+#     NU "attestation-events" cum fusese menționat anterior.
+#
+#  2. NO DB, NO HTTP:
+#     În Faza 2 (finală), Registration Service nu are:
+#       - bază de date proprie (stateless)
+#       - endpoint-uri HTTP (nu mai are /register sau /deregister)
+#     CONSUMER LOOP-UL ESTE PROGRAMUL.
+#     Adică: serviciul pornește, deschide conexiunea Kafka,
+#     și stă în buclă infinită așteptând mesaje.
+#
+#  3. CONSUMER GROUP: "registration"
+#     Kafka îl identifică pe consumator prin grupul lui.
+#     Dacă repornești serviciul, Kafka știe de unde să continue
+#     (de la ultimul mesaj procesat de grupul "registration").
+#
+#  4. FLUXUL COMPLET:
+#     Inventory Service emite STATUS_CHANGED (ACTIVE/RELEASED)
+#     → Kafka topic: number-events
+#     → Registration Service consumer îl preia
+#     → Apelează sign() sau deregister()
+#     → Publică REGISTERED / REGISTRATION_FAILED / DEREGISTERED
+#     → Kafka topic: registration-status
+#     → Inventory Service consumer îl preia și salvează signature
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 21 — SEPARAREA RESPONSABILITĂȚILOR (SINGLE RESPONSIBILITY)
+# ══════════════════════════════════════════════════════════════
+#
+#  PRINCIPIUL: fiecare fișier are un singur job.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  main.py      → ORCHESTRARE                                 │
+#  │                 Pornește Kafka, ascultă mesaje,              │
+#  │                 rutează evenimentele spre funcțiile potrivite│
+#  │                                                             │
+#  │  signer.py    → LOGICA HMAC                                 │
+#  │                 Calculează semnătura digitală,               │
+#  │                 aplică regula cifrei 8                       │
+#  │                                                             │
+#  │  registrar.py → LOGICA DE BUSINESS                          │
+#  │                 Decide ce eveniment să publice pe Kafka      │
+#  │                 (REGISTERED / REGISTRATION_FAILED /          │
+#  │                  DEREGISTERED)                              │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  DE CE NU PUNEM TOTUL ÎN main.py?
+#
+#  main.py nu ar trebui să știe cum se calculează un HMAC —
+#  asta e treaba lui signer.py. Dacă ai tot în main.py, devine
+#  un fișier gigant greu de înțeles și de testat.
+#
+#  FLUXUL APELURILOR:
+#
+#  main.py primește mesaj Kafka
+#      └── apelează process_registration(e164)
+#              └── definită în registrar.py
+#                      └── apelează sign(e164)
+#                              └── definită în signer.py
+#
+#  DESPRE NUMELE FIȘIERELOR:
+#
+#  Numele nu sunt "standard" — sunt descriptive:
+#    - main.py     → standard Python (entry point, mereu așa)
+#    - signer.py   → ales pentru că "semnează" (sign)
+#    - registrar.py → ales pentru că "înregistrează" (register)
+#
+#  Putea fi orice: hmac_helper.py, attestation.py, business_logic.py
+#  Convenția e să numești fișierul după CE FACE, nu după cum se cheamă.

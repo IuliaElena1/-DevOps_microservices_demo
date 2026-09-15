@@ -1,0 +1,242 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Dockerfile explicat
+#  Ce face fiecare linie și de ce
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/d4fe1d1b-c7d9-4b3a-871c-ef45f36db5e9
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — FROM python:3.11-slim
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Definește imaginea de bază pe care se va construi noul tău container.
+#
+#  Detaliu:
+#    Folosește distribuția oficială de Python versiunea 3.11 în varianta
+#    slim (bazată pe Debian). Această variantă elimină directoarele și
+#    pachetele inutile pentru a fi mult mai ușoară.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  python:3.11        → imaginea completă  (~1 GB)            │
+#  │  python:3.11-slim   → varianta minimală (~150-200 MB)       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ANALOGIE:
+#    E ca diferența dintre Windows cu toate programele preinstalate
+#    față de o instalare curată cu minimum necesar.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — WORKDIR /app
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Setează directorul de lucru curent în interiorul containerului la /app.
+#
+#  Detaliu:
+#    Dacă folderul /app nu există în container, Docker îl va crea automat.
+#    Toate comenzile care urmează (COPY, RUN, CMD) se vor executa din
+#    interiorul acestui director.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Fără WORKDIR: fișierele ar fi împrăștiate în /             │
+#  │  Cu WORKDIR:   totul e ordonat în /app                      │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — COPY requirements.txt .
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Copiază fișierul requirements.txt de pe calculatorul tău
+#    (proiectul local) în directorul curent din container
+#    (reprezentat de ".", adică /app).
+#
+#  De ce se copiază SEPARAT înainte de cod?
+#    Pentru a profita de sistemul de cache din Docker.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Dacă nu modifici requirements.txt, Docker nu va mai rula   │
+#  │  pip install la următorul docker build — economisești timp.  │
+#  │                                                             │
+#  │  Dacă ai copia tot codul odată și modifici un singur        │
+#  │  fișier .py, Docker ar reinstala toate pachetele de fiecare │
+#  │  dată — ineficient.                                         │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — RUN pip install --no-cache-dir -r requirements.txt
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Instalează pachetele Python definite în requirements.txt.
+#
+#  Detaliu:
+#    --no-cache-dir → îi spune lui pip să nu păstreze arhivele
+#    descărcate (.whl/.tar.gz) în cache-ul intern.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Fără --no-cache-dir: imaginea Docker e mai mare            │
+#  │                       (păstrează arhivele după instalare)   │
+#  │                                                             │
+#  │  Cu --no-cache-dir:   imaginea Docker e mai mică            │
+#  │                       (arhivele se șterg după instalare)    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  -r requirements.txt → citește lista de pachete din fișier
+#                        și le instalează pe toate
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — COPY app/ app/
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Copiază tot conținutul folderului local app/ în folderul
+#    app/ din container (adică la calea /app/app/).
+#
+#  Detaliu:
+#    Aici aduci codul tău sursă Python efectiv în container:
+#      - main.py
+#      - models.py
+#      - storage.py
+#      - kafka_producer.py
+#      - routers/numbers.py
+#
+#  De ce se face DUPĂ pip install?
+#    Pentru cache — dacă modifici codul, Docker reinstalează
+#    pachetele doar dacă requirements.txt s-a schimbat.
+#    Codul sursă se schimbă des, pachetele — rar.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — EXPOSE 8000
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Are rol de documentație în cadrul imaginii Docker.
+#
+#  Detaliu:
+#    Informează utilizatorul sau instrumentele de orchestrare
+#    (precum Docker Compose) că aplicația din interiorul
+#    containerului este proiectată să asculte pe portul 8000.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  EXPOSE NU publică automat portul pe calculatorul tău!      │
+#  │                                                             │
+#  │  Publicarea portului se face în docker-compose.yml:         │
+#  │    ports: ["8000:8000"]                                     │
+#  │                                                             │
+#  │  EXPOSE = "intenționez să folosesc portul 8000"             │
+#  │  ports:  = "publică portul 8000 pe calculatorul gazdă"      │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Execută comanda implicită care pornește serverul web asincron
+#    Uvicorn la lansarea containerului.
+#
+#  Defalcare parametri:
+#
+#  ┌─────────────────────┬───────────────────────────────────────┐
+#  │  Parametru          │  Ce face                              │
+#  ├─────────────────────┼───────────────────────────────────────┤
+#  │  "uvicorn"          │  Serverul ASGI pentru FastAPI         │
+#  │  "app.main:app"     │  fișierul app/main.py, obiectul app   │
+#  │  "--host 0.0.0.0"   │  ascultă pe toate interfețele rețea   │
+#  │  "--port 8000"      │  portul pe care primește requesturi    │
+#  └─────────────────────┴───────────────────────────────────────┘
+#
+#  "app.main:app" explicat:
+#    app.main  → fișierul app/main.py  (notație Python cu punct)
+#    :app      → variabila "app" din acel fișier (instanța FastAPI)
+#
+#    În main.py ai:
+#      app = FastAPI(...)   ← asta e variabila "app" din "app.main:app"
+#
+#  "--host 0.0.0.0":
+#    Fără asta, serverul ascultă doar pe 127.0.0.1 (localhost).
+#    În container, localhost înseamnă containerul însuși —
+#    traficul din afară nu ar ajunge la el.
+#    0.0.0.0 = acceptă conexiuni de pe orice interfață de rețea.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — DE CE AVEM NEVOIE DE O IMAGINE DE BAZĂ?
+#  (FROM python:3.11-slim — detaliu aprofundat)
+# ══════════════════════════════════════════════════════════════
+#
+#  Gândește-te la un container Docker ca la un mini-calculator
+#  complet izolat (un sistem de operare în miniatură).
+#
+#  Un fișier .py simplu nu poate rula singur pe un ecran gol.
+#  Pentru ca codul tău să funcționeze, are nevoie de un întreg
+#  mediu în spate:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  - Un sistem de fișiere (/usr, /bin, /lib)                  │
+#  │  - Librării de bază ale sistemului de operare               │
+#  │    (C-libraries, utilitare Linux)                           │
+#  │  - Interpretorul Python în sine și utilitarul pip           │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Dacă nu ai folosi FROM python:3.11-slim, ar trebui să:
+#    1. Creezi un container de la zero (nivel Kernel Linux)
+#    2. Instalezi manual Linux
+#    3. Descarci și compilezi Python de la zero
+#
+#  Pe scurt:
+#  FROM python:3.11-slim îți oferă "la cheie" un sistem Linux
+#  mini, curat, care are deja Python 3.11 și pip preinstalate
+#  și gata de drum.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — DE CE TREBUIE SETAT DIRECTORUL DE LUCRU?
+#  (WORKDIR /app — detaliu aprofundat)
+# ══════════════════════════════════════════════════════════════
+#
+#  Când pornește un container Linux nou, locul implicit este
+#  rădăcina sistemului de fișiere (/).
+#
+#  Dacă NU ai pune WORKDIR /app, s-ar întâmpla:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Haos în sistemul de fișiere:                               │
+#  │  COPY requirements.txt . ar arunca fișierul direct în /     │
+#  │  (rădăcină), amestecându-se cu folderele de sistem Linux    │
+#  │  (/bin, /etc, /usr, /var). Greu de gestionat și depanat.   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Erori de căi relative:                                     │
+#  │  Când execuți "python -m app.main" sau faci un import,      │
+#  │  Python caută fișierele relativ la locul curent.            │
+#  │  WORKDIR /app îi spune: "Aici este casa aplicației mele.    │
+#  │  Toate comenzile viitoare se fac din acest folder."         │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Creare automată:                                           │
+#  │  Dacă /app nu există, WORKDIR îl creează automat.           │
+#  │  Echivalent cu: mkdir /app && cd /app în Linux.             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ANALOGIE FINALĂ:
+#
+#  FROM     = Închiriezi un birou deja mobilat și cu curent
+#             electric (mediul Python gata pregătit).
+#
+#  WORKDIR  = Îți alegi biroul tău specific din clădire și
+#             te așezi la masă, ca să nu lucrezi pe hol sau
+#             pe recepție (păstrezi totul organizat).

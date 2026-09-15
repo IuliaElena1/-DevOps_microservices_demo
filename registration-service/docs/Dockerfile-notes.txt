@@ -1,0 +1,217 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Dockerfile explicat
+#  Ce face fiecare linie și de ce
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/26633f5a-16bd-442d-b7f0-55e987843b91
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — COMANDA CMD ["python", "-m", "app.main"]
+# ══════════════════════════════════════════════════════════════
+#
+#  Această comandă folosește sintaxa JSON Array (Exec form) din Docker.
+#  Este forma recomandată oficial de Docker pentru că pornește procesul
+#  direct, fără să mai treacă printr-un shell intermediar (/bin/sh).
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — CMD
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce este:
+#    O instrucțiune Docker care specifică comanda implicită ce va fi
+#    executată atunci când containerul pornește.
+#
+#  Cum funcționează:
+#    Spre deosebire de RUN (care se execută în timpul construirii
+#    imaginii / build time), CMD se execută doar la pornirea
+#    containerului (runtime).
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  RUN  → se execută la docker build  (construirea imaginii)  │
+#  │  CMD  → se execută la docker run    (pornirea containerului)│
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Notă:
+#    CMD poate fi suprascrisă când pornești containerul din linia
+#    de comandă. Exemplu:
+#      docker run my-image python -m pytest
+#    Asta înlocuiește CMD-ul din Dockerfile cu "python -m pytest".
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — "python"
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce este:
+#    Numele executabilului care va fi lansat.
+#
+#  Cum funcționează:
+#    Îi spune containerului să folosească interpretorul de Python
+#    (instalat în imaginea de bază python:3.11-slim) pentru a rula
+#    tot ce urmează.
+#
+#  De ce python:3.11-slim?
+#    Imaginea de bază (FROM python:3.11-slim) vine cu Python 3.11
+#    preinstalat. "slim" înseamnă o versiune minimală — mai mică
+#    ca dimensiune, fără pachete inutile.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — "-m"
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce este:
+#    Un flag (opțiune) al interpretorului Python.
+#    Vine de la "Module".
+#
+#  Cum funcționează:
+#    Îi transmite lui Python:
+#    "Nu căuta un simplu fișier pe disc, ci execută un pachet/modul
+#    Python din directorul curent de lucru (WORKDIR /app), rezolvând
+#    automat toate importurile relative."
+#
+#  De ce este important:
+#    Dacă ai o structură de genul:
+#
+#      /app
+#        └── app/
+#            ├── __init__.py
+#            ├── main.py
+#            └── config.py
+#
+#    Folosind -m app.main, Python tratează "app" ca pe un pachet.
+#    Asta înseamnă că în interiorul lui main.py vei putea face
+#    importuri curate:
+#
+#      from app.config import settings   ✅  funcționează
+#
+#    Fără -m (dacă ai rula python app/main.py direct), importurile
+#    relative ar putea produce erori de tipul ModuleNotFoundError.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  python app/main.py   → rulează fișierul direct             │
+#  │                          importurile relative pot pica      │
+#  │                                                             │
+#  │  python -m app.main   → rulează ca modul din pachet         │
+#  │                          importurile relative funcționează  │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — "app.main"
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce este:
+#    Calea către modulul Python pe care vrei să îl lansezi în execuție.
+#
+#  Cum funcționează:
+#    Se referă la fișierul app/main.py.
+#    Se folosește notația cu punct (.) specifică modulelor Python,
+#    nu cu slash (/) ca în căile de fișiere Linux.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  app.main   (notație Python)  →  app/main.py  (fișier)      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Când pui această comandă, Python va căuta fișierul main.py
+#  în interiorul folderului app și va executa codul din el —
+#  mai exact blocul:
+#
+#    if __name__ == "__main__":
+#        ...
+#
+#  sau instrucțiunile de la nivelul rădăcină al fișierului.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — REZUMAT: CMD ["python", "-m", "app.main"]
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌───────────────┬──────────────────────────────────────────────┐
+#  │  Element      │  Ce face                                     │
+#  ├───────────────┼──────────────────────────────────────────────┤
+#  │  CMD          │  Comanda care rulează la pornirea container  │
+#  │  "python"     │  Folosește interpretorul Python              │
+#  │  "-m"         │  Rulează ca modul (importuri relative OK)    │
+#  │  "app.main"   │  Fișierul app/main.py                        │
+#  └───────────────┴──────────────────────────────────────────────┘
+#
+#  De ce NU avem uvicorn aici?
+#  Registration Service în Faza 2 nu are server HTTP.
+#  Este un consumer loop pur — pornește, ascultă Kafka, procesează.
+#  Nu are nevoie de uvicorn sau FastAPI.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — DE CE AVEM NEVOIE DE O IMAGINE DE BAZĂ?
+#  (FROM python:3.11-slim — detaliu aprofundat)
+# ══════════════════════════════════════════════════════════════
+#
+#  Gândește-te la un container Docker ca la un mini-calculator
+#  complet izolat (un sistem de operare în miniatură).
+#
+#  Un fișier .py simplu nu poate rula singur pe un ecran gol.
+#  Pentru ca codul tău să funcționeze, are nevoie de un întreg
+#  mediu în spate:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  - Un sistem de fișiere (/usr, /bin, /lib)                  │
+#  │  - Librării de bază ale sistemului de operare               │
+#  │    (C-libraries, utilitare Linux)                           │
+#  │  - Interpretorul Python în sine și utilitarul pip           │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Dacă nu ai folosi FROM python:3.11-slim, ar trebui să:
+#    1. Creezi un container de la zero (nivel Kernel Linux)
+#    2. Instalezi manual Linux
+#    3. Descarci și compilezi Python de la zero
+#
+#  Pe scurt:
+#  FROM python:3.11-slim îți oferă "la cheie" un sistem Linux
+#  mini, curat, care are deja Python 3.11 și pip preinstalate
+#  și gata de drum.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — DE CE TREBUIE SETAT DIRECTORUL DE LUCRU?
+#  (WORKDIR /app — detaliu aprofundat)
+# ══════════════════════════════════════════════════════════════
+#
+#  Când pornește un container Linux nou, locul implicit este
+#  rădăcina sistemului de fișiere (/).
+#
+#  Dacă NU ai pune WORKDIR /app, s-ar întâmpla:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Haos în sistemul de fișiere:                               │
+#  │  COPY requirements.txt . ar arunca fișierul direct în /     │
+#  │  (rădăcină), amestecându-se cu folderele de sistem Linux    │
+#  │  (/bin, /etc, /usr, /var). Greu de gestionat și depanat.   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Erori de căi relative:                                     │
+#  │  Când execuți "python -m app.main" sau faci un import,      │
+#  │  Python caută fișierele relativ la locul curent.            │
+#  │  WORKDIR /app îi spune: "Aici este casa aplicației mele.    │
+#  │  Toate comenzile viitoare se fac din acest folder."         │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Creare automată:                                           │
+#  │  Dacă /app nu există, WORKDIR îl creează automat.           │
+#  │  Echivalent cu: mkdir /app && cd /app în Linux.             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ANALOGIE FINALĂ:
+#
+#  FROM     = Închiriezi un birou deja mobilat și cu curent
+#             electric (mediul Python gata pregătit).
+#
+#  WORKDIR  = Îți alegi biroul tău specific din clădire și
+#             te așezi la masă, ca să nu lucrezi pe hol sau
+#             pe recepție (păstrezi totul organizat).

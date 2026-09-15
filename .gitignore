@@ -1,0 +1,31 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfplan
+terraform/.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+
+# Claude
+.claude/
+memory/
+
+# Note personale
+comenzi-workflow.txt
+concepte-generale-sisteme-distribuite.txt
+
+# Fisiere temporare
+started
+seed.sh

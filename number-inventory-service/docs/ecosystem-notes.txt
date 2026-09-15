@@ -1,0 +1,149 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Relația dintre cele 3 fișiere cheie
+#  requirements.txt / Dockerfile / docker-compose.yml
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/010c3d13-d7f6-4bf1-a231-a7297d448ced
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — requirements.txt (Dependențele de Python)
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Este o listă simplă de librării DOAR pentru Python.
+#    Exemple: fastapi, aiokafka, pydantic.
+#
+#  Îi spune lui pip exact ce librării terțe are nevoie codul tău
+#  ca să poată rula fără să dea ImportError.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  fastapi                                                    │
+#  │  uvicorn[standard]                                          │
+#  │  pydantic                                                   │
+#  │  aiokafka                                                   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Nimic mai mult. Nu știe nimic despre Docker, containere,
+#  porturi sau alte servicii. E pur Python.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — Dockerfile (Rețeta pentru O SINGURĂ aplicație)
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Este fișierul de instrucțiuni care construiește mediul
+#    complet pentru UN SINGUR serviciu.
+#
+#  PRECIZARE IMPORTANTĂ — containere vs. mașini virtuale:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Mașini virtuale (VM):                                      │
+#  │    - Au un OS complet virtualizat                           │
+#  │    - Sunt grele (GB de RAM, minute să pornească)            │
+#  │                                                             │
+#  │  Containere Docker:                                         │
+#  │    - Împart kernel-ul sistemului gazdă                      │
+#  │    - Sunt ușoare (MB, secunde să pornească)                 │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  În Dockerfile:
+#    1. Alegi sistemul de operare minim  → FROM python:3.11-slim
+#    2. Copiezi codul tău                → COPY app/ app/
+#    3. Instalezi pachetele Python       → RUN pip install...
+#    4. Definești cum pornește aplicația → CMD ["uvicorn", ...]
+#
+#  Un Dockerfile = O imagine = Un serviciu.
+#  Nu știe nimic despre celelalte servicii (Kafka, Postgres etc.)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — docker-compose.yml (Orchestrarea întregii arhitecturi)
+# ══════════════════════════════════════════════════════════════
+#
+#  Ce face:
+#    Definește cum comunică TOATE serviciile între ele.
+#
+#  Într-un sistem cu microservicii, docker-compose.yml pune
+#  la un loc:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Serviciile tale:                                           │
+#  │    - Inventory Service                                      │
+#  │    - Registration Service                                   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Infrastructura:                                            │
+#  │    - Kafka Broker                                           │
+#  │    - PostgreSQL                                             │
+#  │    - Kafka UI                                               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Rețeaua comună:                                            │
+#  │    Le conectează pe toate într-o rețea virtuală internă.    │
+#  │    Exemplu: inventory-service poate vorbi cu Kafka          │
+#  │    scriind kafka:9092 (nu localhost:9092!).                 │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Volumele de date:                                          │
+#  │    Unde își salvează Postgres datele pe hard-disk-ul tău    │
+#  │    ca să nu le pierzi când oprești containerul.             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Porturile expuse:                                          │
+#  │    Maparea 8000:8000 ca să poți accesa FastAPI              │
+#  │    de pe calculatorul tău.                                  │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — ANALOGIA RESTAURANTULUI
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌──────────────────────┬──────────────────────┬─────────────────────────────────────────┐
+#  │  Fișier              │  Analogie            │  Ce conține                             │
+#  ├──────────────────────┼──────────────────────┼─────────────────────────────────────────┤
+#  │  requirements.txt    │  Lista de ingrediente│  Librăriile de Python                   │
+#  │  Dockerfile          │  Rețeta de bucătărie │  Cum se asamblează un singur container  │
+#  │                      │  pentru UN preparat  │  (OS + Python + Cod)                    │
+#  │  docker-compose.yml  │  Meniul complet și   │  Cum lucrează toate serviciile împreună │
+#  │                      │  organizarea         │  (Bucătăria, Barul, Casa de marcat)     │
+#  │                      │  restaurantului      │                                         │
+#  └──────────────────────┴──────────────────────┴─────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — CUM SE LEAGĂ CELE 3 FIȘIERE ÎNTRE ELE
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  requirements.txt                                           │
+#  │       │                                                     │
+#  │       │  este citit de                                      │
+#  │       ▼                                                     │
+#  │  Dockerfile  ← RUN pip install -r requirements.txt          │
+#  │       │                                                     │
+#  │       │  produce o imagine Docker (image)                   │
+#  │       ▼                                                     │
+#  │  docker-compose.yml  ← build: .  (folosește Dockerfile-ul) │
+#  │       │                                                     │
+#  │       │  pornește toate containerele împreună               │
+#  │       ▼                                                     │
+#  │  docker compose up                                          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Cu alte cuvinte:
+#    requirements.txt → citit de Dockerfile
+#    Dockerfile       → citit de docker-compose.yml
+#    docker-compose.yml → pornit cu "docker compose up"
+#
+#  Fiecare fișier știe doar despre nivelul imediat de sub el.
+#  requirements.txt nu știe de Docker.
+#  Dockerfile nu știe de celelalte servicii.
+#  docker-compose.yml le coordonează pe toate.

@@ -1,0 +1,349 @@
+# ══════════════════════════════════════════════════════════════
+#  NOTIȚĂ DE ÎNVĂȚARE — Dockerfile explicat linie cu linie
+#  Fișierul real este: number-inventory-service/Dockerfile
+# ══════════════════════════════════════════════════════════════
+
+
+# ─── LINIA 1 ──────────────────────────────────────────────────
+FROM python:3.11-slim
+#
+#   FROM        → "pornesc de la imaginea X" — fiecare Dockerfile trebuie să
+#                 înceapă cu FROM; îi spui Docker-ului ce sistem de bază să folosească
+#   python:3.11 → imaginea oficială Python versiunea 3.11 (de pe hub.docker.com)
+#   -slim       → varianta minimală, fără pachete extra; imaginea e mai mică (~50MB vs ~900MB)
+
+
+# ─── LINIA 2 ──────────────────────────────────────────────────
+WORKDIR /app
+#
+#   WORKDIR     → setează "folderul curent" în interiorul containerului
+#                 toate comenzile COPY, RUN, CMD de după vor fi relative la /app
+#   /app        → convenție standard; poți pune orice nume
+
+
+# ─── LINIA 3 ──────────────────────────────────────────────────
+COPY requirements.txt .
+#
+#   COPY        → copiază fișiere de pe laptop (host) în container
+#   requirements.txt → sursa: fișierul de pe laptop (relativ la locul unde rulezi docker build)
+#   .           → destinația: folderul curent din container (adică /app, setat mai sus cu WORKDIR)
+#
+#   DE CE înainte de COPY app/?
+#   Docker folosește un cache pe straturi (layers). Dacă copiezi requirements.txt
+#   separat și nu s-a schimbat, Docker sare peste RUN pip install (îl ia din cache).
+#   Dacă ai copia tot deodată (COPY . .), orice schimbare în cod ar reface și pip install.
+
+
+# ─── LINIA 4 ──────────────────────────────────────────────────
+RUN pip install --no-cache-dir -r requirements.txt
+#
+#   RUN         → execută o comandă shell în timpul build-ului (nu la runtime)
+#   pip install → instalează pachetele Python
+#   --no-cache-dir → nu salvează cache-ul pip în imagine; reduce dimensiunea imaginii
+#   -r requirements.txt → "read from file" = instalează tot ce e listat în fișier
+
+
+# ─── LINIA 5 ──────────────────────────────────────────────────
+COPY app/ app/
+#
+#   Copiază întreg folderul app/ (cu main.py, models.py, storage.py, routers/)
+#   în /app/app/ din container.
+#   Structura în container: /app/app/main.py, /app/app/routers/, etc.
+
+
+# ─── LINIA 6 ──────────────────────────────────────────────────
+EXPOSE 8000
+#
+#   EXPOSE      → documentează că aplicația ascultă pe portul 8000
+#                 ATENȚIE: nu deschide portul automat! E doar o etichetă informativă.
+#                 Portul se deschide efectiv cu -p la docker run.
+
+
+# ─── LINIA 7 ──────────────────────────────────────────────────
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+#   CMD         → comanda care pornește aplicația când containerul este lansat
+#   uvicorn     → serverul web ASGI (rulează aplicații FastAPI/async)
+#   app.main:app → "modulul app.main, obiectul app" = calea Python spre instanța FastAPI
+#                  app.main = folderul app/ → fișierul main.py
+#                  :app    = variabila `app = FastAPI(...)` din main.py
+#   --host 0.0.0.0 → ascultă pe toate interfețele de rețea (necesar în container;
+#                    dacă pui 127.0.0.1, nu e accesibil din afara containerului)
+#   --port 8000  → portul pe care ascultă serverul
+
+
+# ══════════════════════════════════════════════════════════════
+#  PAȘI DE BUILD ȘI RULARE
+#  (se rulează din folderul number-inventory-service/, nu din app/)
+# ══════════════════════════════════════════════════════════════
+
+# ─── PASUL 0 — Pornește Docker Desktop ────────────────────────
+#
+#   Dacă primești: "Cannot connect to the Docker daemon"
+#   → Docker Desktop nu rulează. Deschide aplicația și așteaptă ~15 sec.
+#   Verificare: docker info
+
+
+# ─── PASUL 1 — Build imagine ──────────────────────────────────
+#
+#   docker build -t phone-sor-api:v1 .
+#
+#   docker build   → citește Dockerfile-ul și construiește imaginea
+#   -t             → "tag" = îi dai un nume imaginii
+#   phone-sor-api  → numele imaginii (ales de tine)
+#   :v1            → versiunea (v1, v2, latest, etc.)
+#   .              → contextul de build = folderul curent (numărul-inventory-service/)
+#
+#   IMPORTANT: rulează din folderul care conține Dockerfile-ul (number-inventory-service/)
+#   Verificare imagini: docker images
+
+
+# ─── PASUL 2 — Pornire container ──────────────────────────────
+#
+#   docker run -d -p 8000:8000 --name phone-sor-api phone-sor-api:v1
+#
+#   docker run     → creează și pornește un container din imagine
+#   -d             → "detached" = rulează în background (nu blochează terminalul)
+#   -p 8000:8000   → "port mapping": portul 8000 din container → portul 8000 de pe laptop
+#                    format: -p <port-laptop>:<port-container>
+#   --name         → îi dai un nume containerului (altfel primești unul random)
+#   phone-sor-api:v1 → imaginea din care pornești containerul
+
+
+# ─── PASUL 3 — Verificare ─────────────────────────────────────
+#
+#   docker ps                    → listează containerele care rulează
+#   curl http://localhost:8000   → testează că API-ul răspunde
+
+
+# ─── COMENZI UTILE ────────────────────────────────────────────
+#
+#   docker stop phone-sor-api              → oprește containerul
+#   docker rm phone-sor-api                → șterge containerul
+#   docker logs -f phone-sor-api           → loguri live (-f = follow)
+#   docker exec -it phone-sor-api /bin/bash → terminal în container
+#                                             (-it = interactiv + terminal)
+
+
+# ══════════════════════════════════════════════════════════════
+#  CE S-A ÎNTÂMPLAT LA docker build — și ce urmează
+# ══════════════════════════════════════════════════════════════
+
+# ─── CE A FĂCUT docker build ──────────────────────────────────
+#
+#   Docker a citit Dockerfile-ul linie cu linie și a creat o IMAGINE —
+#   un pachet "înghețat" care conține:
+#     - Python 3.11
+#     - toate dependențele instalate (din requirements.txt)
+#     - codul aplicației copiat înăuntru
+#
+#   Imaginea e salvată local pe laptop. O poți vedea cu:
+#     docker images
+#
+#   IMPORTANT: imaginea e un ȘABLON — nu rulează nimic încă.
+#   E ca un ISO de sistem de operare: există, dar nu e pornit.
+
+
+# ─── DIFERENȚA IMAGINE vs CONTAINER ──────────────────────────
+#
+#   Imagine  = șablon static, read-only, salvat pe disk
+#   Container = instanța vie a imaginii — rulează, are procese, are RAM
+#
+#   Din aceeași imagine poți porni oricâte containere simultan.
+#
+#   Dockerfile  →  docker build  →  Imagine (șablon static)
+#                                        ↓
+#                                  docker run  →  Container (rulează live)
+
+
+# ─── CE URMEAZĂ — pornești containerul ────────────────────────
+#
+#   DE CE trebuie să faci docker run după docker build?
+#
+#   Build-ul a creat doar ȘABLONUL (imaginea) — ca și cum ai instala
+#   un program pe laptop. Dar programul nu pornește singur după instalare.
+#   Trebuie să îl deschizi explicit. Același lucru cu Docker:
+#     docker build  = "instalezi" imaginea
+#     docker run    = "pornești" efectiv aplicația din ea
+#
+#   Fără docker run, codul tău stă pe disk dar nu ascultă pe niciun port,
+#   nu primește requesturi și nu face nimic.
+#
+#   docker run -d -p 8000:8000 --name phone-sor-api phone-sor-api:v1
+#
+#   Ce se întâmplă în spate la docker run:
+#     1. Docker ia imaginea phone-sor-api:v1
+#     2. Creează un container izolat (propriul său sistem de fișiere, rețea, procese)
+#     3. Rulează comanda din CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000
+#     4. FastAPI pornește și începe să asculte requesturi pe portul 8000
+#     5. Datorită -p 8000:8000, requesturile de pe laptopul tău ajung în container
+#
+#   Verificare că totul merge:
+#     http://localhost:8000/docs   → Swagger UI (interfața vizuală FastAPI)
+#     curl http://localhost:8000   → răspuns raw din terminal
+
+
+# ══════════════════════════════════════════════════════════════
+#  docker run — EXPLICAT COMPLET
+# ══════════════════════════════════════════════════════════════
+
+# ─── COMANDA COMPLETĂ ─────────────────────────────────────────
+#
+#   docker run -d -p 8000:8000 --name phone-sor-api phone-sor-api:v1
+#
+#   docker     → CLI-ul Docker (programul pe care îl apelezi)
+#   run        → subcomanda "creează și pornește un container"
+#
+#   -d
+#     vine de la: --detach
+#     ce face: pornește containerul în background, nu blochează terminalul
+#     fără -d: terminalul rămâne "blocat" afișând logurile live;
+#              dacă închizi terminalul, containerul se oprește
+#     cu -d:   terminalul e liber imediat; containerul rulează în spate
+#
+#   -p 8000:8000
+#     vine de la: --publish
+#     ce face: leagă un port de pe laptop de un port din container
+#     format:  -p <port-laptop>:<port-container>
+#     de ce e necesar: containerul e izolat — are propria rețea internă.
+#                      fără -p, portul 8000 din container există dar nu e
+#                      accesibil de pe laptop. -p face "tunelul" între ele.
+#     exemplu: -p 9000:8000 → accesezi pe laptop la :9000, dar în container rulează pe :8000
+#
+#   --name phone-sor-api
+#     vine de la: --name
+#     ce face: îi dai un nume fix containerului
+#     fără --name: Docker generează un nume random (ex: "hungry_einstein")
+#     cu --name:   poți folosi numele în comenzi ulterioare:
+#                  docker stop phone-sor-api (în loc de docker stop <id-hash>)
+#
+#   phone-sor-api:v1
+#     nu e un flag — e argumentul final: imaginea din care pornești containerul
+#     phone-sor-api → numele imaginii (dat la docker build -t)
+#     :v1           → tag-ul/versiunea imaginii
+
+
+# ─── CE SE ÎNTÂMPLĂ DUPĂ PORNIRE ──────────────────────────────
+#
+#   FastAPI-ul tău rulează acum în container și ascultă pe portul 8000.
+#   E ca și cum ai fi rulat direct în terminal:
+#     uvicorn app.main:app --host 0.0.0.0 --port 8000
+#   ...doar că rulează izolat, în cutia lui Docker.
+#
+#   Terminalul e liber (datorită -d). Containerul rulează în spate.
+
+
+# ─── CUM TESTEZI ──────────────────────────────────────────────
+#
+#   1. Verifici că containerul rulează:
+#        docker ps
+#      Ar trebui să apară phone-sor-api cu status "Up X seconds"
+#
+#   2. Deschizi browserul la:
+#        http://localhost:8000/docs
+#      → Swagger UI: interfața vizuală FastAPI cu toate endpoint-urile
+#        Poți testa requesturi direct din browser, fără terminal.
+#
+#   3. Testezi un endpoint din terminal (ex. GET /numbers):
+#        curl http://localhost:8000/numbers
+#      → primești răspunsul JSON al API-ului
+#
+#   4. Dacă ceva nu merge, verifici logurile:
+#        docker logs phone-sor-api
+#      → vezi erorile exact ca în terminal când rulezi local
+
+
+# ══════════════════════════════════════════════════════════════
+#  LOCALHOST vs IP — ȘI SCOPUL REAL AL DOCKER
+# ══════════════════════════════════════════════════════════════
+
+# ─── DE CE APARE LOCALHOST ȘI NU UN IP? ───────────────────────
+#
+#   localhost / 127.0.0.1 = adresa de "eu însumi"
+#   Aplicația rulează pe laptopul tău și e accesibilă DOAR de pe laptopul tău.
+#   Nimeni altcineva din rețea nu poate accesa http://localhost:8000.
+#
+#   0.0.0.0 din CMD (Dockerfile) = containerul ascultă pe toate interfețele
+#   lui interne. Nu înseamnă că e public — înseamnă că acceptă conexiuni
+#   venite prin portul mapat cu -p.
+#
+#   Ca să fie accesibil cu IP real (de pe internet) → trebuie deployed
+#   pe un server cloud (AWS, GCP, DigitalOcean etc.)
+
+
+# ─── SCOPUL REAL AL DOCKER ────────────────────────────────────
+#
+#   Pe laptopul tău, Docker pare inutil — ai Python instalat, poți rula
+#   uvicorn direct. Dar Docker rezolvă problema "merge la mine, nu merge la tine".
+#
+#   Fără Docker:
+#     Tu ai:               Python 3.11, uvicorn 0.20, fastapi 0.95
+#     Colegul are:         Python 3.9, versiuni diferite → erori
+#     Serverul producție:  n-are Python instalat deloc → nu merge
+#
+#   Cu Docker:
+#     Toți iau aceeași imagine → rulează identic oriunde
+#     Laptop, server AWS, server GCP, colegul — același rezultat garantat
+#
+#   Practic nu livrezi codul, ci MEDIUL COMPLET DE RULARE împachetat.
+#   Serverul nu trebuie să aibă Python, nu trebuie să instaleze nimic — doar Docker.
+
+
+# ─── DACĂ DAI RUN DIN DOCKER DESKTOP ─────────────────────────
+#
+#   E exact același lucru ca docker run din terminal.
+#   Pornești un container, aplicația devine accesibilă la localhost:8000.
+
+
+# ─── FLUXUL COMPLET ÎN PRACTICĂ ──────────────────────────────
+#
+#   1. Scrii codul
+#   2. docker build  → creezi imaginea local
+#   3. docker push   → încarci imaginea pe Docker Hub / registry intern
+#   4. Serverul face docker pull + docker run
+#      → aplicația ta rulează în producție, accesibilă de pe internet
+#
+#   Ca să distribui imaginea pe alt laptop:
+#
+#   Varianta 1 — Docker Hub (ca GitHub, dar pentru imagini):
+#     docker push phone-sor-api:v1    ← tu încarci
+#     docker pull phone-sor-api:v1    ← colegul descarcă
+#     docker run ...                  ← colegul pornește
+#
+#   Varianta 2 — fișier .tar (fără internet):
+#     docker save phone-sor-api:v1 > image.tar   ← tu exporți
+#     docker load < image.tar                    ← colegul importă
+#
+#   Pe orice laptop pe care rulezi docker run, aplicația apare pe localhost
+#   al acelui laptop — fiecare vede propria instanță.
+
+
+# ══════════════════════════════════════════════════════════════
+#  CE URMEAZĂ — DIRECȚII POSIBILE
+# ══════════════════════════════════════════════════════════════
+
+# ─── OPȚIUNEA 1 — docker-compose ──────────────────────────────
+#
+#   Când aplicația ta are nevoie de mai multe servicii simultan:
+#   ex. FastAPI + bază de date PostgreSQL + Redis
+#   Le definești într-un fișier docker-compose.yml și le pornești
+#   pe toate cu o singură comandă:
+#     docker compose up
+#
+#   Fără compose: trebuie să pornești fiecare container manual, separat.
+
+# ─── OPȚIUNEA 2 — Push pe Docker Hub ─────────────────────────
+#
+#   Publici imaginea ta pe hub.docker.com (registry public/privat).
+#   Oricine (sau orice server) poate face docker pull și rula aplicația.
+
+# ─── OPȚIUNEA 3 — Deploy pe server cloud ──────────────────────
+#
+#   Imaginea ta Docker ajunge pe un server real (AWS, GCP, DigitalOcean).
+#   Aplicația devine accesibilă de pe internet cu un IP real, nu localhost.
+
+# ─── OPȚIUNEA 4 — CI/CD cu GitHub Actions ─────────────────────
+#
+#   Automatizezi tot fluxul:
+#   push pe GitHub → build automat → push imagine → deploy automat
+#   Fără să faci nimic manual de fiecare dată.

@@ -1,0 +1,239 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — requirements.txt explicat
+#  Ce este, de ce există, și ce face fiecare pachet
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/d8ad5c1c-4113-4924-8fcb-cd625a2dd29c
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — CE ESTE requirements.txt?
+# ══════════════════════════════════════════════════════════════
+#
+#  requirements.txt este un fișier simplu text care listează
+#  toate librăriile Python de care are nevoie proiectul tău.
+#
+#  Când rulezi:
+#    pip install -r requirements.txt
+#
+#  Python descarcă și instalează automat tot ce e în listă.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  E ca o listă de cumpărături.                               │
+#  │  În loc să mergi la magazin și să cumperi fiecare produs    │
+#  │  manual, dai lista casierului și el aduce tot odată.        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce e important?
+#  Când dai proiectul altcuiva (sau îl pui în Docker), ei nu au
+#  librăriile tale instalate. Cu requirements.txt rulează un
+#  singur command și au tot ce le trebuie.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — PACHETELE DIN NUMBER INVENTORY SERVICE
+# ══════════════════════════════════════════════════════════════
+#
+#  requirements.txt conține:
+#
+#    fastapi
+#    uvicorn[standard]
+#    pydantic
+#    pytest
+#    httpx
+#    aiokafka
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — FASTAPI
+# ══════════════════════════════════════════════════════════════
+#
+#  FastAPI este framework-ul web cu care construiești API-ul.
+#  El îți oferă:
+#    - sistemul de routing (@app.get, @app.post etc.)
+#    - validarea automată a datelor primite
+#    - Swagger UI (/docs) generat automat
+#    - suport async nativ
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  FastAPI e ca scheletul unei clădiri.                       │
+#  │  Tu pui pereții (endpoint-urile), el se ocupă de fundație   │
+#  │  (HTTP, routing, validare).                                 │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Fără FastAPI ai scrie sute de linii de cod pentru lucruri
+#  de bază (cum să primești un request, cum să returnezi JSON etc.)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — UVICORN[STANDARD]
+# ══════════════════════════════════════════════════════════════
+#
+#  Uvicorn este serverul care pornește aplicația FastAPI și
+#  o face accesibilă pe rețea.
+#
+#  FastAPI singur NU poate asculta conexiuni — are nevoie de
+#  un server care să facă asta. Uvicorn e acel server.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  FastAPI = un restaurant (bucătăria + meniul)               │
+#  │  Uvicorn = ușa și ospătarul care primește clienții           │
+#  │                                                             │
+#  │  Fără uvicorn, restaurantul există dar nu poate primi       │
+#  │  clienți — ușa e închisă.                                   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce [standard]?
+#  uvicorn[standard] instalează uvicorn + pachete extra pentru
+#  performanță mai bună (websockets, http tools).
+#  uvicorn fără [standard] merge și el, dar mai lent.
+#
+#  Cum îl folosești:
+#    uvicorn app.main:app --host 0.0.0.0 --port 8000
+#    ↑         ↑    ↑      ↑               ↑
+#    server  fișier obiect  ascultă pe     portul
+#            main.py  app   toate adresele
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — PYDANTIC
+# ══════════════════════════════════════════════════════════════
+#
+#  Pydantic este librăria de validare a datelor.
+#  Definești un model (o clasă Python) și Pydantic verifică
+#  automat că datele primite au formatul corect.
+#
+#  EXEMPLU:
+#
+#    from pydantic import BaseModel
+#
+#    class PhoneNumberCreate(BaseModel):
+#        e164: str           ← trebuie să fie string
+#        country_code: str   ← trebuie să fie string
+#
+#  Dacă cineva trimite { "e164": 12345 } (număr în loc de string),
+#  Pydantic returnează automat eroare 422 fără să scrii tu cod.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pydantic e ca un controlor la intrare.                     │
+#  │  Verifică fiecare pachet (request) înainte să intre în      │
+#  │  aplicație. Dacă ceva e greșit, îl oprește la ușă.          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  FastAPI folosește Pydantic intern — de aceea funcționează
+#  validarea automată a request-urilor.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — PYTEST
+# ══════════════════════════════════════════════════════════════
+#
+#  pytest este librăria pentru scris și rulat teste automate.
+#
+#  Un test automat = cod Python care verifică că alt cod
+#  funcționează corect.
+#
+#  EXEMPLU simplu:
+#
+#    def test_create_number():
+#        response = client.post("/numbers/", json={"e164": "+40712345678"})
+#        assert response.status_code == 201
+#
+#  Rulezi toate testele cu un singur command:
+#    pytest
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Imaginează-ți că după ce construiești o mașină, ai un      │
+#  │  robot care testează automat fiecare buton și pedală.       │
+#  │  pytest e acel robot pentru codul tău.                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce e important?
+#  Fără teste, când modifici ceva în cod nu știi dacă ai stricat
+#  altceva. Testele îți spun imediat ce s-a broken.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — HTTPX
+# ══════════════════════════════════════════════════════════════
+#
+#  httpx este un client HTTP async pentru Python.
+#  Adică: o librărie cu care poți face request-uri HTTP
+#  (GET, POST, PATCH etc.) din cod Python.
+#
+#  În Number Inventory Service, httpx e folosit de pytest
+#  pentru a testa endpoint-urile FastAPI fără să pornești
+#  serverul real.
+#
+#  EXEMPLU:
+#
+#    from fastapi.testclient import TestClient
+#    import httpx
+#
+#    client = TestClient(app)
+#    response = client.post("/numbers/", json={...})
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  httpx e ca un browser invizibil controlat din cod.         │
+#  │  În loc să deschizi Chrome și să dai click manual,          │
+#  │  httpx face request-urile automat din Python.               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Diferența față de requests (librăria clasică Python):
+#    requests → sincron (blochează până primește răspuns)
+#    httpx    → async (poate face mai multe request-uri simultan)
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — AIOKAFKA
+# ══════════════════════════════════════════════════════════════
+#
+#  aiokafka este clientul Python pentru Apache Kafka,
+#  construit pe async/await (de aceea prefixul "aio").
+#
+#  Cu aiokafka poți:
+#    - Publica mesaje pe un topic Kafka (Producer)
+#    - Citi mesaje dintr-un topic Kafka (Consumer)
+#
+#  DE CE "aio" în față?
+#  "aio" vine de la asyncio — sistemul Python pentru cod asincron.
+#  aiokafka lucrează cu async/await, deci nu blochează aplicația
+#  când trimite/primește mesaje Kafka.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Versiunea normală (kafka-python) e ca să trimiți o         │
+#  │  scrisoare și să stai la ușă până vine răspunsul.           │
+#  │                                                             │
+#  │  aiokafka e ca să trimiți scrisoarea și să te duci să       │
+#  │  faci alte lucruri — ești notificat când vine răspunsul.    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce avem nevoie de el în Number Inventory Service?
+#    - Producer: publică NUMBER_CREATED și STATUS_CHANGED pe Kafka
+#    - Consumer (Faza 2): va asculta attestation-events de la
+#      Registration Service și va salva signature în DB
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — REZUMAT RAPID
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌──────────────────┬────────────────────────────────────────┐
+#  │ Pachet           │ Rol                                    │
+#  ├──────────────────┼────────────────────────────────────────┤
+#  │ fastapi          │ Framework web — endpoint-uri, routing  │
+#  │ uvicorn[standard]│ Server HTTP — pornește aplicația       │
+#  │ pydantic         │ Validare date — verifică request-urile │
+#  │ pytest           │ Rulează teste automate                 │
+#  │ httpx            │ Client HTTP async — folosit în teste   │
+#  │ aiokafka         │ Client Kafka async — producer/consumer │
+#  └──────────────────┴────────────────────────────────────────┘

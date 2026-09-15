@@ -1,0 +1,135 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Docker Registry explained
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/9428b73f-7c39-4879-a68f-0fa789b0c8bd
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — WHAT IS A DOCKER REGISTRY?
+# ══════════════════════════════════════════════════════════════
+#
+#   A Docker Registry is a central storage place where Docker images
+#   are stored and distributed.
+#
+#   Think of it as an "App Store" or a "GitHub" — but specifically for Docker images.
+#
+#   You already used one without knowing it:
+#   When you wrote FROM python:3.11-slim in your Dockerfile,
+#   Docker automatically downloaded that image from Docker Hub (the default registry).
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — HOW IT FITS INTO YOUR WORKFLOW
+# ══════════════════════════════════════════════════════════════
+#
+#   Three commands, three steps:
+#
+#   ┌─────────────────┐     docker build     ┌─────────────────┐
+#   │   Dockerfile    │ ──────────────────>  │  Local Image    │
+#   └─────────────────┘                      └─────────────────┘
+#                                                     │
+#                                                     │ docker push
+#                                                     ▼
+#                                            ┌─────────────────┐
+#                                            │ DOCKER REGISTRY │
+#                                            └─────────────────┘
+#                                                     │
+#                                                     │ docker pull
+#                                                     ▼
+#   ┌─────────────────┐     docker run       ┌─────────────────┐
+#   │   Container     │ <──────────────────  │ Prod Server /   │
+#   │  (running)      │                      │  Kubernetes     │
+#   └─────────────────┘                      └─────────────────┘
+#
+#   docker build
+#     Creates an image on YOUR machine from the Dockerfile.
+#     The image exists only locally at this point.
+#
+#   docker push
+#     Uploads (sends) the image from your machine to the Registry.
+#     Now anyone or any server can access it.
+#
+#   docker pull
+#     Downloads the image from the Registry onto another machine or server
+#     (e.g. a production server, Kubernetes, AWS).
+#     After pulling, that machine can run the container.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — TYPES OF REGISTRIES
+# ══════════════════════════════════════════════════════════════
+#
+#   ── PUBLIC REGISTRIES (accessible to anyone) ──────────────
+#
+#   Docker Hub (hub.docker.com)
+#     The most well-known registry and the default one.
+#     Every time you write FROM python:3.11-slim or
+#     image: confluentinc/cp-kafka:7.5.0 in a Dockerfile or
+#     docker-compose.yml, Docker downloads from Docker Hub.
+#     Free for public images.
+#
+#   GitHub Container Registry (GHCR)
+#     Publish images linked to your GitHub projects.
+#     Useful when your code is already on GitHub.
+#
+#   ── PRIVATE REGISTRIES (used inside companies) ────────────
+#
+#   In a company you do NOT want your code to be public.
+#   Companies create a private registry (protected with passwords / access keys):
+#
+#   AWS ECR (Elastic Container Registry)
+#     The most used registry when working in AWS.
+#     This is what you will use in Phase 2 of your internship.
+#
+#   Google Artifact Registry (GAR)
+#     Same concept but in Google Cloud.
+#
+#   Azure Container Registry (ACR)
+#     Same concept but in Microsoft Azure.
+#
+#   Harbor
+#     An open-source option you can install on your own servers.
+#     Used by companies that want full control over their infrastructure.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — WHY YOU NEED A REGISTRY IN YOUR PROJECT
+# ══════════════════════════════════════════════════════════════
+#
+#   WITHOUT a registry — to put your FastAPI app on a production server
+#   you would have to:
+#     1. Copy all your code files manually to the server
+#     2. Run docker build on the server itself
+#     This is completely wrong in DevOps — slow, error-prone, not repeatable.
+#
+#   WITH a registry — the flow becomes automated and clean:
+#
+#     1. You push code to GitHub
+#     2. CI/CD pipeline (GitHub Actions) runs docker build automatically
+#     3. Pipeline runs docker push → new image lands in the registry (e.g. AWS ECR)
+#     4. The server or Kubernetes cluster runs docker pull from the registry
+#     5. New version of the app is live — without you touching the server manually
+#
+#   The registry is the bridge between "code on your laptop" and "app running in production".
+#   Nothing goes to a server without first going through the registry.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — WHERE THIS FITS IN YOUR INTERNSHIP PLAN
+# ══════════════════════════════════════════════════════════════
+#
+#   Phase 1 (now):
+#     docker build + docker run locally → no registry needed yet
+#     docker-compose → runs everything on your laptop
+#
+#   Phase 2 (AWS):
+#     docker push → you will push your image to AWS ECR
+#     EC2 server does docker pull from ECR and runs the container
+#
+#   Phase 5 (CI/CD):
+#     GitHub Actions does docker build + docker push automatically
+#     on every git push to the repository
+#     No manual steps — the pipeline handles everything

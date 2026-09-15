@@ -1,0 +1,129 @@
+name: DevopsProj
+
+services:
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+      
+  db_number_inventory:
+    image: mysql:8.0
+    container_name: mysql_number_inventory
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword123
+      MYSQL_DATABASE: number_inventory
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: userpassword123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "app_user", "-puserpassword123"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  number-inventory-service:
+    build: ./number-inventory-service
+    ports:
+      - "8000:8000"
+    depends_on:
+      kafka:
+        condition: service_started
+      db_number_inventory:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DB_HOST: db_number_inventory
+      DB_PORT: 3306
+      DB_USER: app_user
+      DB_PASSWORD: userpassword123
+      DB_NAME: number_inventory
+    restart: on-failure
+
+  db_port_order:
+    image: mysql:8.0
+    container_name: mysql_port_order
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword123
+      MYSQL_DATABASE: port_order
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: userpassword123
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_port_order_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "app_user", "-puserpassword123"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  port-order-service:
+    build: ./port-order-service
+    ports:
+      - "8001:8001"
+    depends_on:
+      kafka:
+        condition: service_started
+      db_port_order:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DB_HOST: db_port_order
+      DB_PORT: 3306
+      DB_USER: app_user
+      DB_PASSWORD: userpassword123
+      DB_NAME: port_order
+    restart: on-failure
+
+  registration-service:
+    build: ./registration-service
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SECRET_PROVIDER_KEY: secret123
+    restart: on-failure
+
+volumes:
+  zookeeper-data:
+  kafka-data:
+  mysql_data:
+  mysql_port_order_data:

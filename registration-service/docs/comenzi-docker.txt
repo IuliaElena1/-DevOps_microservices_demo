@@ -1,0 +1,195 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Comenzi esențiale
+#  Docker, verificare, log-uri — tot ce folosești zilnic
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/3de93ae4-ac62-4fcc-9f6e-ea8cd2f65342
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — PORNIRE
+# ══════════════════════════════════════════════════════════════
+#
+#  Înainte de orice, asigură-te că ești în folderul corect:
+#
+#    cd /Users/icordea/Documents/Projects/DevOps/registration-service
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornire normală (prima dată sau după down):                │
+#  │                                                             │
+#  │    docker compose up -d                                     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornire cu rebuild (după ce ai modificat cod):             │
+#  │                                                             │
+#  │    docker compose up -d --build                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornire locală fără Docker (Faza 1 - testare HTTP):        │
+#  │                                                             │
+#  │    uvicorn app.main:app --reload --port 8001                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CE ÎNSEAMNĂ -d?
+#    -d = detached = rulează în fundal
+#    Fără -d, terminalul rămâne blocat cu log-urile.
+#    Cu -d, terminalul e liber și containerele rulează în spate.
+#
+#  CE ÎNSEAMNĂ --reload?
+#    Folosit doar local (fără Docker). Repornește automat serverul
+#    când modifici un fișier Python. Util în development.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — OPRIRE
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Oprire normală:                                            │
+#  │                                                             │
+#  │    docker compose down                                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Oprire + ștergere volume (fresh start complet):            │
+#  │                                                             │
+#  │    docker compose down --volumes                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Registration Service e stateless (fără bază de date proprie),
+#  deci --volumes nu face mare diferență pentru el.
+#  Contează mai mult la serviciile cu baze de date.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — VERIFICARE (că totul rulează)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Vezi statusul tuturor containerelor:                       │
+#  │                                                             │
+#  │    docker compose ps                                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Verifici că serviciul răspunde (health check):             │
+#  │                                                             │
+#  │    curl http://localhost:8001/health                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Răspuns așteptat: {"status": "ok"}
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Swagger UI (interfață vizuală pentru testare):             │
+#  │                                                             │
+#  │    http://localhost:8001/docs                               │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — TESTARE MANUALĂ (Faza 1 — HTTP)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Test succes — număr care se termină în 7:                  │
+#  │                                                             │
+#  │    curl -X POST http://localhost:8001/register \            │
+#  │      -H "Content-Type: application/json" \                  │
+#  │      -d '{"e164": "+40712345677"}'                          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Răspuns așteptat:
+#    { "event_type": "REGISTERED", "signature": "a3f5b892..." }
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Test eșec simulat — număr care se termină în 8:            │
+#  │                                                             │
+#  │    curl -X POST http://localhost:8001/register \            │
+#  │      -H "Content-Type: application/json" \                  │
+#  │      -d '{"e164": "+40712345678"}'                          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Răspuns așteptat:
+#    { "event_type": "REGISTRATION_FAILED", "signature": null }
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Test deregister:                                           │
+#  │                                                             │
+#  │    curl -X POST http://localhost:8001/deregister \          │
+#  │      -H "Content-Type: application/json" \                  │
+#  │      -d '{"e164": "+40712345677"}'                          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Răspuns așteptat:
+#    { "event_type": "DEREGISTERED", "signature": null }
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — LOG-URI (debugging)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Log-urile serviciului tău (cel mai util):                  │
+#  │                                                             │
+#  │    docker compose logs registration-service -f              │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Ultimele 50 linii:                                         │
+#  │                                                             │
+#  │    docker compose logs registration-service --tail=50       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CE ÎNSEAMNĂ -f?
+#    -f = follow = rămâne deschis și afișează log-urile în timp real
+#    CTRL+C oprește urmărirea log-urilor.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — DOCKER GENERAL (comenzi utile)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Toate containerele care rulează (pe tot sistemul):         │
+#  │                                                             │
+#  │    docker ps                                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Toate imaginile descărcate:                                │
+#  │                                                             │
+#  │    docker images                                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Intră în container (terminal interactiv):                  │
+#  │                                                             │
+#  │    docker compose exec registration-service bash            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Curăță tot ce nu mai e folosit:                            │
+#  │                                                             │
+#  │    docker system prune                                      │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — FLUX ZILNIC RECOMANDAT
+# ══════════════════════════════════════════════════════════════
+#
+#  La începutul zilei:
+#    1. docker compose up -d          ← pornești totul
+#    2. docker compose ps             ← verifici că rulează
+#    3. curl localhost:8001/health    ← confirmi că API-ul răspunde
+#
+#  Când modifici cod:
+#    1. docker compose down
+#    2. docker compose up -d --build  ← rebuild cu noul cod
+#
+#  La sfârșitul zilei:
+#    1. docker compose down           ← oprești tot

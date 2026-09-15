@@ -1,0 +1,219 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Registration Service Architecture Diagram
+#  Full interpretation of Figure 3
+# ══════════════════════════════════════════════════════════════
+#
+#  Visual version (HTML with colors):
+#  https://claude.ai/code/artifact/a857cd31-72b3-4780-ad0e-a20f073573c2
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  THE DIAGRAM
+# ══════════════════════════════════════════════════════════════
+#
+#  Original image: docs/diagrams/registration-service-architecture.png
+#
+#  ┌─────────────────────────────────────────────────────────────────┐
+#  │  KAFKA                                                          │
+#  │  ┌─────────────────┐        ┌──────────────────────┐           │
+#  │  │  number-events  │        │  registration-status │           │
+#  │  └────────┬────────┘        └──────────▲───────────┘           │
+#  └───────────┼─────────────────────────────┼───────────────────────┘
+#              │ ACTIVE,                     │ REGISTERED,
+#              │ RELEASED                    │ REGISTRATION_FAILED,
+#              │                             │ DEREGISTERED
+#              │                             │
+#  ┌───────────▼─────────────────────────────┼───────────────────────┐
+#  │  REGISTRATION SERVICE                   │                       │
+#  │  (NO DB, NO HTTP — THE CONSUMER LOOP IS THE PROGRAM)            │
+#  │                                                                 │
+#  │  ┌──────────────────────────────────────┘                       │
+#  │  │  consumer group: registration                                │
+#  │  │  (listens to number-events)                                  │
+#  │  └──────────────┬───────────────────────────────────────────────┘
+#  │                 │ sign (ACTIVE) /
+#  │                 │ deregister (RELEASED)
+#  │                 ▼
+#  │  ┌──────────────────────────────────┐
+#  │  │  attestation provider (stub)     │
+#  │  │  HMAC sign / deregister          │
+#  │  └──────────────────────────────────┘
+#  └─────────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — SERVICE ARCHITECTURE: WHAT IT IS AND WHAT IT IS NOT
+# ══════════════════════════════════════════════════════════════
+#
+#  The diagram's box explicitly states:
+#
+#    "NO DB, NO HTTP — THE CONSUMER LOOP IS THE PROGRAM"
+#
+#  This means:
+#
+#  NO FastAPI / No HTTP server:
+#    This service does not expose any HTTP endpoints.
+#    No /register, no /deregister, no Swagger UI in Phase 2.
+#    Uvicorn is not needed. FastAPI is not needed.
+#
+#  NO Database:
+#    The service stores nothing. It receives a message,
+#    processes it, and publishes the result. That's it.
+#    Stateless by design.
+#
+#  THE CONSUMER LOOP IS THE PROGRAM:
+#    The service is a pure Python worker — a script that starts,
+#    opens a Kafka connection, and enters an infinite loop
+#    waiting for messages (while True / aiokafka consumer loop).
+#    When a message arrives, it processes it and publishes back.
+#    When no messages arrive, it just waits.
+#
+#  ANALOGY:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Think of a postal worker who only does one thing:          │
+#  │  sits at a desk, waits for envelopes to arrive,             │
+#  │  stamps each one, and puts it in the outgoing pile.         │
+#  │  No phone, no computer, no storage — just the stamp loop.  │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — INPUT: THE number-events TOPIC
+# ══════════════════════════════════════════════════════════════
+#
+#  The Inventory Service (your main FastAPI app) publishes
+#  messages to the Kafka topic: number-events
+#
+#  Registration Service has a Consumer configured in
+#  Consumer Group: "registration"
+#
+#  It listens and reacts to two specific events:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  ACTIVE  → a number transitioned to the active state        │
+#  │            → call sign(e164) → try HMAC signing             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  RELEASED → a number was given back / released              │
+#  │             → call deregister(e164) → notify provider       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  All other events (NUMBER_CREATED, RESERVED etc.) are IGNORED.
+#  The consumer reads them but does nothing with them.
+#
+#  WHY CONSUMER GROUP "registration"?
+#    Kafka uses the consumer group name to track progress.
+#    If the service restarts, Kafka knows exactly which messages
+#    were already processed by group "registration" and continues
+#    from where it left off — no messages are lost or duplicated.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — INTERNAL LOGIC: attestation provider (stub)
+# ══════════════════════════════════════════════════════════════
+#
+#  When a message arrives, the Consumer passes it to the
+#  attestation provider component:
+#
+#  IF the event is ACTIVE:
+#    → calls sign(e164)
+#    → attempts HMAC signing
+#    → Digit-8 rule: if e164 ends in 8, attestation fails
+#    → Otherwise: returns the HMAC hash (signature)
+#
+#  IF the event is RELEASED:
+#    → calls deregister(e164)
+#    → just logs that the number is no longer active
+#    → no real provider call (stub)
+#
+#  WHY "stub"?
+#    A stub is a fake replacement for something that doesn't
+#    exist yet. In production, this would call a real external
+#    provider API. For now, it's simulated with HMAC + the
+#    digit-8 rule so we can test both success and failure paths.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — OUTPUT: THE registration-status TOPIC
+# ══════════════════════════════════════════════════════════════
+#
+#  After processing, Registration Service acts as a Kafka
+#  Producer and sends the result to a NEW topic: registration-status
+#
+#  ┌───────────────────┬──────────────────────┬─────────────────────────────┐
+#  │ Input event       │ Attestation result   │ Event published             │
+#  ├───────────────────┼──────────────────────┼─────────────────────────────┤
+#  │ ACTIVE            │ Sign succeeded       │ REGISTERED (with signature) │
+#  │ ACTIVE            │ Fail (ends in 8)     │ REGISTRATION_FAILED (null)  │
+#  │ RELEASED          │ Deregistered         │ DEREGISTERED (null)         │
+#  └───────────────────┴──────────────────────┴─────────────────────────────┘
+#
+#  Event payloads:
+#
+#  REGISTERED:
+#    { "event_type": "REGISTERED", "e164": "+40712345677", "signature": "a3f5b892..." }
+#
+#  REGISTRATION_FAILED:
+#    { "event_type": "REGISTRATION_FAILED", "e164": "+40712345678", "signature": null }
+#
+#  DEREGISTERED:
+#    { "event_type": "DEREGISTERED", "e164": "+40712345678", "signature": null }
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — COMPLETE DATA FLOW (end to end)
+# ══════════════════════════════════════════════════════════════
+#
+#  1. User calls PATCH /numbers/+40712345677/status
+#     with { "new_status": "ACTIVE", "version": 1 }
+#
+#  2. Inventory Service updates the number status to ACTIVE
+#     and publishes to Kafka:
+#       topic: number-events
+#       { "event": "STATUS_CHANGED", "e164": "+40712345677", "new_status": "ACTIVE" }
+#
+#  3. Registration Service consumer (group: registration)
+#     receives the message from number-events
+#
+#  4. Sees new_status = "ACTIVE" → calls sign("+40712345677")
+#     Number ends in 7 → HMAC succeeds → signature = "a3f5b892..."
+#
+#  5. Registration Service publishes to Kafka:
+#       topic: registration-status
+#       { "event_type": "REGISTERED", "e164": "+40712345677", "signature": "a3f5b892..." }
+#
+#  6. Inventory Service consumer receives the REGISTERED event
+#     and saves the signature to the number's record in the DB
+#
+#  ─────────────────────────────────────────────────────────────
+#
+#  SAME FLOW but number ends in 8 (failure case):
+#
+#  Steps 1-3 identical.
+#  4. sign("+40712345678") → ends in 8 → returns None
+#  5. Publishes: { "event_type": "REGISTRATION_FAILED", ..., "signature": null }
+#  6. Inventory Service saves signature = null
+#     Number status remains ACTIVE — the failure is just recorded as a fact.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — KEY TAKEAWAYS FROM THE DIAGRAM
+# ══════════════════════════════════════════════════════════════
+#
+#  ✅ Two Kafka topics:
+#       number-events       ← input  (produced by Inventory Service)
+#       registration-status ← output (produced by Registration Service)
+#
+#  ✅ No HTTP, No DB:
+#       The service is a pure consumer loop worker.
+#       Phase 1 (HTTP) was only for testing the HMAC logic.
+#       Phase 2 removes HTTP entirely.
+#
+#  ✅ Consumer group: "registration"
+#       Kafka tracks progress per group — safe restarts.
+#
+#  ✅ Signature is a fact, not a lifecycle state:
+#       The number stays ACTIVE regardless of attestation outcome.
+#       The signature column just records what happened.

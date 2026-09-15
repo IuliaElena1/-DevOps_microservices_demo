@@ -1,0 +1,193 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — requirements.txt explicat
+#  Ce este, de ce există, și ce face fiecare pachet
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/bc0eb889-44dd-4f64-bfd0-ef944c15cbba
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — CE ESTE requirements.txt?
+# ══════════════════════════════════════════════════════════════
+#
+#  requirements.txt este un fișier simplu text care listează
+#  toate librăriile Python de care are nevoie proiectul tău.
+#
+#  Când rulezi:
+#    pip install -r requirements.txt
+#
+#  Python descarcă și instalează automat tot ce e în listă.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  E ca o listă de cumpărături.                               │
+#  │  În loc să mergi la magazin și să cumperi fiecare produs    │
+#  │  manual, dai lista casierului și el aduce tot odată.        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce e important?
+#  Când dai proiectul altcuiva (sau îl pui în Docker), ei nu au
+#  librăriile tale instalate. Cu requirements.txt rulează un
+#  singur command și au tot ce le trebuie.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — PACHETELE DIN REGISTRATION SERVICE
+# ══════════════════════════════════════════════════════════════
+#
+#  requirements.txt conține:
+#
+#   pydantic
+#   pydantic-settings
+#   pytest
+#   aiokafka
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — PYDANTIC
+# ══════════════════════════════════════════════════════════════
+#
+#  Pydantic este librăria de validare a datelor.
+#  Definești un model (o clasă Python) și Pydantic verifică
+#  automat că datele primite au formatul corect.
+#
+#  EXEMPLU:
+#
+#    from pydantic import BaseModel
+#
+#    class NumberRequest(BaseModel):
+#        e164: str        ← trebuie să fie string
+#
+#  Dacă cineva trimite { "e164": 12345 } (număr în loc de string),
+#  Pydantic returnează automat eroare 422 fără să scrii tu cod.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pydantic e ca un controlor la intrare.                     │
+#  │  Verifică fiecare pachet (request) înainte să intre în      │
+#  │  aplicație. Dacă ceva e greșit, îl oprește la ușă.          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  FastAPI folosește Pydantic intern — de aceea funcționează
+#  validarea automată a request-urilor.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — AIOKAFKA
+# ══════════════════════════════════════════════════════════════
+#
+#  aiokafka este clientul Python pentru Apache Kafka,
+#  construit pe async/await (de aceea prefixul "aio").
+#
+#  Cu aiokafka poți:
+#    - Publica mesaje pe un topic Kafka (Producer)
+#    - Citi mesaje dintr-un topic Kafka (Consumer)
+#
+#  DE CE "aio" în față?
+#  "aio" vine de la asyncio — sistemul Python pentru cod asincron.
+#  aiokafka lucrează cu async/await, deci nu blochează aplicația
+#  când trimite/primește mesaje Kafka.
+#
+#  ANALOGIE:
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Versiunea normală (kafka-python) e ca să trimiți o         │
+#  │  scrisoare și să stai la ușă până vine răspunsul.           │
+#  │                                                             │
+#  │  aiokafka e ca să trimiți scrisoarea și să te duci să       │
+#  │  faci alte lucruri — ești notificat când vine răspunsul.    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce avem nevoie de el în Registration Service?
+#  Pentru Faza 2 (Kafka):
+#    - Consumer: ascultă evenimentele STATUS_CHANGED de la Inventory Service
+#    - Producer: publică REGISTERED / REGISTRATION_FAILED / DEREGISTERED
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — DIFERENȚA FAȚĂ DE NUMBER INVENTORY SERVICE
+# ══════════════════════════════════════════════════════════════
+#
+#  Number Inventory Service are în plus:
+#    pytest  → librărie pentru scris și rulat teste automate
+#    httpx   → client HTTP async (folosit de pytest pentru a testa API-ul)
+#
+#  Registration Service nu are pytest și httpx pentru că:
+#    - e un serviciu mai simplu (stateless, fără DB)
+#    - testarea se face manual prin Swagger în Faza 1
+#    - le poți adăuga oricând dacă vrei să scrii teste
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — REZUMAT RAPID
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌──────────────────┬────────────────────────────────────────┐
+#  │ Pachet           │ Rol                                    │
+#  ├──────────────────┼────────────────────────────────────────┤
+#  │ pydantic         │ Validare date — verifică request-urile │
+#  │ aiokafka         │ Client Kafka async — producer/consumer │
+#  └──────────────────┴────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — DESCRIEREA DETALIATĂ A PACHETELOR (din cerință)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  aiokafka                                                   │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Motorul principal al serviciului.                          │
+#  │  Se ocupă de conexiunea asincronă la Kafka:                 │
+#  │    - Consumer-ul care ascultă pe "number-events"            │
+#  │    - Producer-ul care trimite pe "registration-status"      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  pydantic                                                   │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Îți permite să validezi structura mesajelor JSON pe care   │
+#  │  le primești/trimiți, ca să te asiguri că au formatul       │
+#  │  corect (e164, status etc.).                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  pydantic-settings                                          │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Îți permite să încarci configurațiile în Python direct     │
+#  │  din Docker environment variables.                          │
+#  │  Exemplu: SECRET_PROVIDER_KEY, KAFKA_BOOTSTRAP_SERVERS —   │
+#  │  le definești într-o clasă Settings și pydantic-settings    │
+#  │  le citește automat din environment.                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  pytest                                                     │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Perfect dacă vrei să scrii un test rapid pentru funcția    │
+#  │  HMAC sau regula cu cifra 8, fără să pornești tot           │
+#  │  clusterul de Kafka.                                        │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 10 — PYTHON STANDARD LIBRARY (NU se adaugă în requirements)
+# ══════════════════════════════════════════════════════════════
+#
+#  Unele module sunt deja incluse în Python — nu trebuie instalate.
+#  NU le adaugi în requirements.txt.
+#
+#  ┌──────────────────┬─────────────────────────────────────────┐
+#  │  Modul           │  Rol                                    │
+#  ├──────────────────┼─────────────────────────────────────────┤
+#  │  hmac            │  generarea semnăturii HMAC               │
+#  │  hashlib         │  algoritmul SHA256                      │
+#  │  asyncio         │  bucla de evenimente async (event loop) │
+#  │  json            │  serializare/deserializare JSON         │
+#  │  os              │  citirea variabilelor de mediu          │
+#  └──────────────────┴─────────────────────────────────────────┘
+#
+#  Acestea fac parte din Standard Library — vin cu orice instalare
+#  Python. Dacă le adaugi în requirements.txt, pip va returna
+#  eroare pentru că nu există ca pachete separate pe PyPI.

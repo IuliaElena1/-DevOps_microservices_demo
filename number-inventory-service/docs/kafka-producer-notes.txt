@@ -1,0 +1,1083 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Kafka Producer
+#  What it is, why we need it, and what we are building
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/85e26134-02a6-4b7a-8fdb-69d26db3297c
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — THE PROBLEM: NO ONE KNOWS WHAT CHANGED
+# ══════════════════════════════════════════════════════════════
+#
+#   Right now, when you call PATCH /numbers/{e164}/status
+#   and change a number from AVAILABLE to RESERVED, this happens:
+#
+#     HTTP Request → API → saves in memory → responds with 200 OK
+#                               ↑
+#                         nobody else knows this happened
+#
+#   The system has 3 services. Port Order Service and Registration Service
+#   need to know when a number changes state.
+#
+#   They cannot keep asking the API "did anything change?" every second.
+#   That is inefficient and creates tight coupling between services.
+#   If the API is temporarily down, the other services are stuck.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — THE SOLUTION: KAFKA PRODUCER
+# ══════════════════════════════════════════════════════════════
+#
+#   A Kafka Producer is a piece of code that PUBLISHES a message
+#   to a Kafka topic after something important happens.
+#
+#   With a producer, after every status change:
+#
+#     HTTP Request → API → saves in memory → publishes event to Kafka
+#                                                     ↓
+#                                         Port Order Service reads it
+#                                         Registration Service reads it
+#
+#   Nobody asks anybody — everyone LISTENS and REACTS.
+#   If a service is temporarily down, the message waits in Kafka
+#   until that service comes back and reads it.
+#
+#   This is called EVENT-DRIVEN ARCHITECTURE:
+#   services communicate through events, not direct calls.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — WHAT MESSAGE GETS PUBLISHED
+# ══════════════════════════════════════════════════════════════
+#
+#   After every successful PATCH /status, the API sends a JSON message
+#   to the Kafka topic "number-events":
+#
+#   {
+#     "event":      "STATUS_CHANGED",
+#     "e164":       "+14155550100",
+#     "old_status": "AVAILABLE",
+#     "new_status": "RESERVED",
+#     "version":    2
+#   }
+#
+#   event      → what happened (the type of event)
+#   e164       → which phone number was affected
+#   old_status → what the status was before
+#   new_status → what the status is now
+#   version    → the new version number after the change
+#
+#   Any service subscribed to the "number-events" topic receives this
+#   message and can decide what to do with it.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — WHERE IN THE CODE THIS GOES
+# ══════════════════════════════════════════════════════════════
+#
+#   File: app/routers/numbers.py
+#   Function: update_status (the PATCH endpoint)
+#
+#   Current flow (without producer):
+#     1. Receive PATCH request
+#     2. Validate version (optimistic lock)
+#     3. Validate state transition
+#     4. Save updated number to memory
+#     5. Return response
+#
+#   New flow (with producer):
+#     1. Receive PATCH request
+#     2. Validate version (optimistic lock)
+#     3. Validate state transition
+#     4. Save updated number to memory
+#     5. Publish event to Kafka topic "number-events"  ← NEW
+#     6. Return response
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — THE ROADMAP
+# ══════════════════════════════════════════════════════════════
+#
+#   ✅  Step 1: HTTP endpoints (POST, GET, PATCH)
+#   ✅  Step 2: State machine (AVAILABLE → RESERVED → ACTIVE → RELEASED)
+#   ✅  Step 3: Optimistic locking (version check)
+#   ✅  Step 4: Dockerfile + docker build + docker run
+#   ✅  Step 5: seed.sh — inject synthetic_numbers.json
+#   ✅  Step 6: docker-compose.yml with Kafka + Zookeeper
+#   →   Step 7: Kafka producer (API publishes events to number-events)
+#   ⬜  Step 8: Kafka consumer 1 (reads from port-order-status topic)
+#   ⬜  Step 9: Kafka consumer 2 (reads from registration-events topic)
+#   ⬜  Step 10: Full integration test with all 3 services
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — HOW TO VERIFY THE PRODUCER WORKS
+# ══════════════════════════════════════════════════════════════
+#
+#   After implementing the producer, you can see messages arriving in Kafka.
+#
+#   TERMINAL 1 — start listening on the topic:
+#
+#     docker compose exec kafka kafka-console-consumer \
+#       --bootstrap-server localhost:9092 \
+#       --topic number-events \
+#       --from-beginning
+#
+#     docker compose exec kafka
+#       Opens a session inside the running Kafka container.
+#       exec = execute a command inside an already-running container.
+#
+#     kafka-console-consumer
+#       A built-in Kafka command-line tool that reads and prints messages.
+#
+#     --bootstrap-server localhost:9092
+#       Tells the consumer where Kafka is.
+#       Inside the container, Kafka is reachable at localhost:9092.
+#
+#     --topic number-events
+#       Which topic to listen to.
+#       This is the topic your API publishes state changes to.
+#
+#     --from-beginning
+#       Read all messages from the start of the topic, not just new ones.
+#       Without this: only messages that arrive AFTER you start the consumer are shown.
+#
+#
+#   TERMINAL 2 — trigger a status change:
+#
+#     curl -X PATCH http://localhost:8000/numbers/+14155550100/status \
+#       -H "Content-Type: application/json" \
+#       -d '{"new_status": "RESERVED", "version": 1}'
+#
+#     curl              = command-line HTTP client
+#     -X PATCH          = use the PATCH method (partial update)
+#     -H                = add a header (tells the server we send JSON)
+#     -d                = the request body (the JSON data we send)
+#
+#   Expected result:
+#   As soon as you run the curl command in Terminal 2,
+#   a JSON message appears instantly in Terminal 1 showing the event.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — WHY KAFKA EXISTS: THE REAL PROBLEM IT SOLVES
+# ══════════════════════════════════════════════════════════════
+#
+#   Think of Kafka as a PUBLIC SPEAKER (or a WhatsApp group) for your apps.
+#
+#
+#   THE PROBLEM — apps calling each other directly (without Kafka):
+#
+#   Imagine you have 3 apps:
+#     1. Your Numbers API (the one you are building)
+#     2. Billing System (charges the client when a number is reserved)
+#     3. SMS Notifications (sends "Your number has been reserved")
+#
+#   Without Kafka, when you PATCH /status to reserve a number,
+#   your API has to call Billing AND SMS directly and wait for both:
+#
+#   [ Client ]
+#       │
+#   PATCH /status
+#       │
+#       ▼
+#   [ Numbers API ] ──calls──► [ Billing ]   ← what if Billing is down?
+#         │
+#         └──────calls──────► [ SMS ]        ← what if SMS is slow?
+#         │
+#    waits for BOTH
+#    before returning 200 OK
+#
+#   WHY THIS IS BAD:
+#
+#   It is slow:
+#     Your API must wait for Billing and SMS to finish before returning 200 OK.
+#     The client is stuck waiting for unrelated services.
+#
+#   Domino effect:
+#     If the Billing server is broken or slow, YOUR API crashes too.
+#     The client gets an error, even though your database was working perfectly.
+#
+#   Hard to extend:
+#     Want to add a 4th service (Audit log)?
+#     You have to modify your API code to also call Audit.
+#     Every new service requires changing existing code.
+#
+#
+#   THE SOLUTION — Kafka as the intermediary:
+#
+#   Kafka is like leaving a note in a mailbox instead of knocking on the door
+#   and waiting for someone to answer.
+#
+#   With Kafka:
+#
+#   [ Client ]
+#       │
+#   PATCH /status
+#       │
+#       ▼
+#   [ Numbers API ]
+#       │
+#       ├── saves to database
+#       ├── throws message into Kafka: "number +14155550100 is now RESERVED"
+#       └── returns 200 OK instantly ← done in milliseconds
+#
+#                         [ KAFKA ]
+#                         "number-events" topic
+#                              │
+#              ┌───────────────┼───────────────┐
+#              ▼               ▼               ▼
+#         [ Billing ]      [ SMS ]        [ Audit ]
+#         reads when       reads when     reads when
+#         it is ready      it is ready    it is ready
+#
+#   Your API does not even know Billing or SMS exist.
+#   It just shouts into the speaker and moves on.
+#   This is called DECOUPLING.
+#
+#
+#   THE 3 BIG ADVANTAGES:
+#
+#   1. SPEED
+#      Your main application does not wait for other services.
+#      Returns 200 OK in milliseconds.
+#
+#   2. FAULT TOLERANCE
+#      If Billing crashes, messages pile up in Kafka and wait.
+#      When Billing recovers, it processes the queue — nothing is lost.
+#      Your main API keeps running as if nothing happened.
+#
+#   3. SCALABILITY
+#      Want to add a new service (Audit log, Analytics, etc.)?
+#      Do NOT touch your API code at all.
+#      Just point the new service at the same Kafka topic — done.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — HOW KAFKA STORES MESSAGES
+# ══════════════════════════════════════════════════════════════
+#
+#   Kafka is a BUFFER OF PROTECTION — errors in other services
+#   do not break the client's experience.
+#
+#   Unlike traditional message brokers (like RabbitMQ) that DELETE messages
+#   immediately after they are read, Kafka is essentially an
+#   EVENT DATABASE stored on DISK (on the hard drive).
+#
+#   When your API sends a JSON message:
+#     1. Kafka writes it to a binary file on the server's disk
+#        (inside the Kafka Docker container)
+#     2. Each message gets a unique order number called an OFFSET
+#        (message 0, message 1, message 2...)
+#     3. Messages stay stored for a configurable time period
+#        (7 days, 30 days, or forever) — regardless of whether they were read
+#
+#   WHAT THIS MEANS IN PRACTICE:
+#
+#   If the Billing service crashes on Friday at 5pm and is fixed Monday at 9am,
+#   when it starts on Monday it says:
+#   "The last messages I read on Friday were up to Offset 1000.
+#    What was written over the weekend?"
+#   Kafka delivers all messages from offset 1001 onwards, in exact order.
+#   No client loses anything.
+#
+#   OFFSET visualized:
+#
+#   Topic: number-events
+#   ┌──────────┬──────────┬──────────┬──────────┬──────────┐
+#   │ Offset 0 │ Offset 1 │ Offset 2 │ Offset 3 │ Offset 4 │ ...
+#   │ RESERVED │ ACTIVE   │ RESERVED │ RELEASED │ RESERVED │
+#   └──────────┴──────────┴──────────┴──────────┴──────────┘
+#                                    ▲
+#                               Billing read up to here on Friday
+#                               Reads from here on Monday
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — HOW TO SEE KAFKA MESSAGES (3 OPTIONS)
+# ══════════════════════════════════════════════════════════════
+#
+#   Kafka has no native UI — it is a "headless" background service.
+#   There are 3 ways to see what is stored in it:
+#
+#
+#   OPTION A — Terminal (what we do now)
+#
+#     docker compose exec kafka kafka-console-consumer \
+#       --bootstrap-server localhost:9092 \
+#       --topic number-events \
+#       --from-beginning
+#
+#     Uses kafka-console-consumer, a utility built into Kafka.
+#     Prints all messages as plain text directly in the terminal.
+#     Simple but no filtering, no search, no UI.
+#
+#
+#   OPTION B — Web UI dashboards (most popular in DevOps)
+#
+#     In real projects, a separate container is added to docker-compose.yml
+#     that provides a visual web interface in the browser.
+#     Most popular options:
+#
+#       AKHQ          → feature-rich, used in large companies
+#       Kafka UI      → by Provectus, clean and easy to use
+#       Kafdrop       → lightweight, minimal
+#
+#     With Kafka UI added to docker-compose.yml:
+#       - Open browser at http://localhost:8080
+#       - Click on the "number-events" topic
+#       - Browse messages, search by content, see offsets
+#       - See how many consumers are connected and their errors
+#       - No terminal commands needed
+#
+#
+#   OPTION C — VS Code extension
+#
+#     Install the "Kafka" extension by Red Hat in VS Code.
+#     Connect to localhost:9092 directly from your editor.
+#     Browse topics and messages without leaving your development environment.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 10 — EVENT-DRIVEN ARCHITECTURE EXPLAINED
+# ══════════════════════════════════════════════════════════════
+#
+#   This is pure Event-Driven Architecture — exactly how modern
+#   production systems communicate.
+#
+#   WHAT YOU ARE BUILDING TODAY:
+#   In routers/numbers.py you already have a PATCH /status route.
+#   Until now, when you called PATCH, only this happened:
+#     1. Check version (optimistic locking)
+#     2. Update in memory
+#     3. Return HTTP response to client
+#
+#   What you ADD today (the Kafka Producer):
+#   Immediately after step 2 (after the data is saved successfully),
+#   your FastAPI app becomes a Kafka Producer.
+#   It builds a JSON object called an Event and throws it onto
+#   the Kafka "conveyor belt" on the channel called "number-events".
+#
+#   Full flow with producer:
+#
+#   [ Client / Postman ]
+#         │
+#    PATCH /status
+#         │
+#         ▼
+#   ┌─────────────────────────────────────────────────────┐
+#   │  FastAPI (routers/numbers.py)                       │
+#   │                                                     │
+#   │  1. Check optimistic lock & update memory           │
+#   │  2. Send JSON → Kafka (Topic: "number-events") ────┼──┐
+#   │  3. Return HTTP 200 OK                              │  │
+#   └─────────────────────────────────────────────────────┘  │
+#                                                            │
+#                                                     (JSON message)
+#                                                            │
+#                                                            ▼
+#                                              ┌──────────────────────────┐
+#                                              │   APACHE KAFKA BROKER    │
+#                                              │  Topic: number-events    │
+#                                              └──────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — WHY EACH FIELD IN THE JSON EVENT EXISTS
+# ══════════════════════════════════════════════════════════════
+#
+#   The event JSON looks like this:
+#   {
+#     "event":      "STATUS_CHANGED",
+#     "e164":       "+14155550100",
+#     "old_status": "AVAILABLE",
+#     "new_status": "RESERVED",
+#     "version":    2
+#   }
+#
+#   "event": "STATUS_CHANGED"
+#     Tells other services WHAT type of action occurred.
+#     Useful for filtering — a service only reacts to events it cares about.
+#     In the future there could be other event types: NUMBER_CREATED, NUMBER_DELETED, etc.
+#
+#   "e164": "+14155550100"
+#     The unique identifier of the affected phone number.
+#     Other services use this to know WHICH number to act on.
+#
+#   "old_status": "AVAILABLE"
+#     The state the number was in BEFORE the change.
+#     Allows other services to verify the transition makes sense.
+#
+#   "new_status": "RESERVED"
+#     The state the number is in NOW after the change.
+#     This is what triggers downstream actions
+#     (e.g. Port Order Service sees RESERVED and starts the porting process).
+#
+#   "version": 2
+#     The new version number after the optimistic lock was applied.
+#     Allows consumers to detect if they are processing a stale event.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 9 — IS THIS A "REAL" KAFKA?
+# ══════════════════════════════════════════════════════════════
+#
+#   YES — the Kafka container running via Docker Compose on your laptop
+#   is a complete Apache Kafka server, identical to the one used on
+#   production servers (AWS MSK, Azure Event Hubs, etc.).
+#   The only difference is it runs locally instead of in the cloud.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 10 — WHAT THE PYTHON CODE LOOKS LIKE
+# ══════════════════════════════════════════════════════════════
+#
+#   To send messages from routers/numbers.py, you use a Python
+#   Kafka library (aiokafka or kafka-python).
+#
+#   Conceptually, the new lines in update_status() look like this:
+#
+#   # 1. Update in memory (already exists)
+#   updated = number.model_copy(update={
+#       "status": payload.new_status,
+#       "version": number.version + 1,
+#   })
+#   storage.db[e164] = updated
+#
+#   # 2. NEW — publish event to Kafka
+#   event_data = {
+#       "event":      "STATUS_CHANGED",
+#       "e164":       e164,
+#       "old_status": number.status,
+#       "new_status": payload.new_status,
+#       "version":    updated.version
+#   }
+#   await kafka_producer.send_and_wait(
+#       "number-events",
+#       json.dumps(event_data).encode("utf-8")
+#   )
+#
+#   json.dumps(event_data)
+#     Converts the Python dictionary to a JSON string.
+#     e.g. {"event": "STATUS_CHANGED", "e164": "+14155550100", ...}
+#
+#   .encode("utf-8")
+#     Converts the string to bytes — Kafka sends bytes, not strings.
+#
+#   send_and_wait("number-events", ...)
+#     Sends the message to the "number-events" topic and waits
+#     for Kafka to confirm it was received before continuing.
+#
+#   await
+#     The function is async (non-blocking).
+#     While Kafka confirms receipt, the app can handle other requests.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 11 — LIVE VERIFICATION (TWO TERMINALS SIDE BY SIDE)
+# ══════════════════════════════════════════════════════════════
+#
+#   Open two terminal windows side by side to see the magic in real time.
+#
+#   TERMINAL 1 — the listener (stays open, waiting):
+#
+#     docker compose exec kafka kafka-console-consumer \
+#       --bootstrap-server localhost:9092 \
+#       --topic number-events \
+#       --from-beginning
+#
+#     This window stays BLOCKED — it listens in real time.
+#     You will see messages appear here as soon as they are published.
+#
+#
+#   TERMINAL 2 — trigger the change (or use Swagger UI):
+#
+#     curl -X PATCH "http://localhost:8000/numbers/+14155550100/status" \
+#       -H "Content-Type: application/json" \
+#       -d '{"new_status": "RESERVED", "version": 1}'
+#
+#     OR open http://localhost:8000/docs and use the PATCH /status endpoint.
+#
+#
+#   WHAT HAPPENS:
+#   The instant you press Execute in Swagger (or run curl in Terminal 2),
+#   a JSON message appears instantly in Terminal 1 with no delay:
+#
+#   {"event":"STATUS_CHANGED","e164":"+14155550100","old_status":"AVAILABLE","new_status":"RESERVED","version":2}
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 12 — THE FULL FLOW EXPLAINED: WHY EACH STEP EXISTS
+# ══════════════════════════════════════════════════════════════
+#
+#   PATCH /status ──> saves to DB ──> sends to Kafka ──> returns 200 OK
+#                                            ↓
+#                                    appears in Kafka UI
+#
+#   Step 1 — Client sends the request
+#     Frontend / Mobile sends: "Change number X status to ACTIVE"
+#
+#   Step 2 — FastAPI saves to database
+#     The Number Inventory Service updates the state in memory (or DB)
+#     and commits. The database remains the single source of truth.
+#
+#   Step 3 — Kafka Producer fires
+#     Immediately after the commit, FastAPI builds a JSON message:
+#     {"number": "+407...", "old_status": "RESERVED", "new_status": "ACTIVE"}
+#     and publishes it to the "number-events" topic.
+#
+#   Step 4 — Return 200 OK immediately
+#     The client gets its confirmation fast — it does NOT wait for
+#     Billing, SMS Gateway, or Analytics to process the change.
+#
+#   Step 5 — Kafka UI reflects the event
+#     Kafka UI reads the topic automatically and shows the message,
+#     confirming the event was emitted successfully.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 13 — WHY EACH TECHNICAL PIECE EXISTS
+# ══════════════════════════════════════════════════════════════
+
+
+# ── WHY aiokafka (not a regular Kafka library)? ───────────────
+#
+#   FastAPI is an ASYNC framework (uses async/await).
+#   If we used a standard synchronous Kafka library, every message sent
+#   would BLOCK the entire FastAPI server for a few milliseconds.
+#   During that block, no other client requests could be processed.
+#
+#   aiokafka sends messages in the background without blocking.
+#   The server stays responsive to all other requests at full speed.
+
+
+# ── WHY connect the producer in main.py (at startup)? ────────
+#
+#   Connecting to a Kafka cluster (the network handshake) is an
+#   EXPENSIVE operation — it can take 100-200ms.
+#
+#   BAD approach: open + close a connection on every PATCH request
+#     → Every status change takes 100-200ms extra → API becomes slow
+#
+#   GOOD approach: open ONE global connection when FastAPI starts,
+#   reuse it for every request, close it cleanly when FastAPI stops.
+#
+#   This is what the lifespan context manager does:
+#
+#   @asynccontextmanager
+#   async def lifespan(app):
+#       # STARTUP — runs once when FastAPI starts
+#       await kafka_producer.start()
+#       yield                          ← app runs here
+#       # SHUTDOWN — runs once when FastAPI stops
+#       await kafka_producer.stop()
+#
+#   @asynccontextmanager
+#     A decorator that turns a function into a context manager.
+#     Separates startup logic (before yield) from shutdown logic (after yield).
+#
+#   yield
+#     The dividing line. Everything before = startup. Everything after = shutdown.
+#     While the app is running, execution is "paused" at this line.
+
+
+# ── WHY publish from routers/numbers.py (on each PATCH)? ─────
+#
+#   The router is where the business logic lives — it is the only place
+#   that knows a state change just happened AND that it was successful.
+#
+#   We publish AFTER the data is saved, never before.
+#   If we published before saving and the save failed,
+#   we would have sent a lie to Kafka — other services would react
+#   to a change that never actually happened.
+#
+#   Correct order:
+#     1. Validate (version check + state machine)
+#     2. Save to storage  ← if this fails, we stop here, nothing is published
+#     3. Publish to Kafka ← only runs if step 2 succeeded
+#     4. Return response
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 14 — THE 3 FILES WE CHANGED AND WHY
+# ══════════════════════════════════════════════════════════════
+#
+#   FILE 1: requirements.txt
+#     Added: aiokafka
+#     Why: tells pip which library to install inside the Docker container.
+#     Without this, the container has no Kafka library and crashes on import.
+#
+#   FILE 2: app/kafka_producer.py  (NEW FILE)
+#     Contains: start_producer(), stop_producer(), publish()
+#     Why: keeps all Kafka logic in one place.
+#     main.py calls start/stop. routers call publish().
+#     If we ever switch Kafka libraries, we only change this one file.
+#
+#   FILE 3: app/main.py
+#     Added: lifespan context manager that starts/stops the producer.
+#     Why: the producer must be alive for the entire lifetime of the app,
+#     not created and destroyed on every request.
+#
+#   FILE 4: app/routers/numbers.py
+#     Changed: update_status() is now async, publishes event after save.
+#     Why: async is required to use await with aiokafka.
+#     The event is published only after a successful save.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 15 — HOW TO TEST THE WHOLE THING
+# ══════════════════════════════════════════════════════════════
+#
+#   1. Rebuild and restart:
+#        docker compose down
+#        docker compose up -d --build
+#        bash scripts/seed.sh
+#
+#   2. Open Kafka UI in browser:
+#        http://localhost:8080
+#        Go to: Topics → number-events → Messages
+#
+#   3. Trigger a status change (Swagger or curl):
+#        curl -X PATCH "http://localhost:8000/numbers/+14155550100/status" \
+#          -H "Content-Type: application/json" \
+#          -d '{"new_status": "RESERVED", "version": 1}'
+#
+#   4. Refresh Kafka UI → you will see the message appear:
+#        {
+#          "event":      "STATUS_CHANGED",
+#          "e164":       "+14155550100",
+#          "old_status": "AVAILABLE",
+#          "new_status": "RESERVED",
+#          "version":    2
+#        }
+#
+#   5. Check API logs to confirm no errors:
+#        docker compose logs -f api
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 16 — lifespan EXPLAINED LINE BY LINE (app/main.py)
+# ══════════════════════════════════════════════════════════════
+#
+#   lifespan is how you tell FastAPI:
+#   "Before accepting the first HTTP request, run the SETUP phase.
+#    When the server shuts down, run the CLEANUP phase."
+#
+#   Without lifespan=lifespan, FastAPI would not know WHEN to start
+#   the Kafka connection or when to close it.
+
+
+# ── THE CODE, EVERY LINE EXPLAINED ───────────────────────────
+
+#   @asynccontextmanager
+#     A decorator from Python's contextlib module.
+#     It turns this async function into a "Context Manager" —
+#     a function that can use yield to split execution into two phases:
+#       Phase 1: everything BEFORE yield  (startup)
+#       Phase 2: everything AFTER yield   (shutdown)
+
+#   async def lifespan(app: FastAPI):
+#     Defines the lifespan function. It receives the FastAPI app as argument.
+#     async = this function can use await inside it (required for aiokafka).
+
+
+#   ── PHASE 1: STARTUP (runs ONCE when the server starts) ──────
+
+#   await kafka_producer.start_producer()
+#     Opens the network connection to the Kafka cluster.
+#     Does the "handshake" with the broker so the client is ready
+#     to send messages instantly when requests arrive.
+#     await = waits for the connection to be established before continuing.
+
+#   print("Kafka Producer started successfully!")
+#     Prints a confirmation message in the terminal/logs.
+#     Useful to confirm in docker compose logs that startup succeeded.
+
+
+#   ── THE TURNING POINT ────────────────────────────────────────
+
+#   yield
+#     Pauses the function and hands control back to FastAPI.
+#     At this point the server is officially RUNNING and ready for HTTP requests.
+#     The application stays "frozen" at this yield line for as long as the
+#     server runs — hours, days, weeks.
+#     All routes (GET, POST, PATCH) reuse the connection opened above.
+
+
+#   ── PHASE 2: SHUTDOWN (runs when the server stops / Ctrl+C) ──
+
+#   await kafka_producer.stop_producer()
+#     When you press Ctrl+C or Docker sends a stop signal,
+#     execution resumes HERE (after the yield).
+#     Closes the Kafka connection cleanly — ensures any messages
+#     still in memory are flushed to disk before disconnecting.
+
+#   print("Kafka Producer stopped.")
+#     Confirms in the terminal that resources were released cleanly.
+
+
+#   ── WIRING IT INTO FASTAPI ────────────────────────────────────
+
+#   app = FastAPI(title="...", lifespan=lifespan)
+#     Registers the lifespan function with the FastAPI app.
+#     lifespan=lifespan hands FastAPI the "keys":
+#       - run startup before opening the HTTP port
+#       - run shutdown when stopping
+
+#   app.include_router(numbers.router)
+#     Adds all our routes (PATCH /status, GET /numbers, etc.)
+#     into the configured app.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 17 — WHY lifespan MATTERS FOR PERFORMANCE
+# ══════════════════════════════════════════════════════════════
+#
+#   WITHOUT lifespan (bad approach):
+#     Open Kafka connection on every PATCH request
+#     → each connection takes 100-200ms
+#     → a busy API making 100 requests/second wastes 10-20 seconds
+#       just on connection overhead
+#
+#   WITH lifespan (correct approach):
+#     Open ONE connection at startup
+#     → all routes reuse that already-open connection
+#     → sending a message to Kafka takes only 1-2ms
+#     → the API stays fast regardless of traffic volume
+#
+#   This is the same principle as a database connection pool:
+#   you open connections once and reuse them,
+#   instead of opening and closing them on every query.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 18 — WHERE DOES kafka_producer COME FROM?
+# ══════════════════════════════════════════════════════════════
+#
+#   kafka_producer is NOT a secret Python command.
+#   It is a module we created ourselves in this project: app/kafka_producer.py
+#
+#   That file defines three functions:
+#     start_producer()  → opens the connection to Kafka
+#     stop_producer()   → closes the connection cleanly
+#     publish()         → sends a message to a topic
+#
+#   In main.py, we import it at the top:
+#     from . import kafka_producer
+#
+#   In numbers.py, we import it too:
+#     from .. import kafka_producer
+#
+#   kafka_producer is just a tool we built in our project
+#   to make talking to the Kafka server easier.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 19 — WHAT IS yield AND WHY DO WE USE IT?
+# ══════════════════════════════════════════════════════════════
+#
+#   To understand yield, first remember what return does:
+#
+#   return → "calculate this, give me the result, then CLOSE the function forever
+#              (erase everything from memory)"
+#
+#   yield  → "give me the result, but PUT THE FUNCTION ON PAUSE right here.
+#              Do NOT close it. Wait until I call you again.
+#              When called again, CONTINUE from the next line."
+#
+#   A function that uses yield is called a GENERATOR.
+#
+#
+#   HOW yield WORKS IN FastAPI lifespan — the full timeline:
+#
+#   ① Press START (run Docker / FastAPI):
+#        FastAPI enters the lifespan function.
+#        Runs: await kafka_producer.start_producer()
+#        → connects to Kafka
+#
+#   ② Hits yield:
+#        FastAPI says: "Preparations done. Pausing this function now."
+#        → the function freezes at this exact line
+#
+#   ③ App RUNS (the pause lasts hours / days / weeks):
+#        While the function is paused at yield, FastAPI handles
+#        thousands of requests (GET, POST, PATCH), saves data,
+#        sends Kafka messages, etc.
+#
+#   ④ Press STOP (Ctrl+C or Docker stop signal):
+#        FastAPI detects the shutdown. Returns to lifespan,
+#        un-pauses the function, continues from below the yield:
+#        Runs: await kafka_producer.stop_producer()
+#        → disconnects from Kafka cleanly
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 20 — OTHER PLACES YOU WILL SEE yield IN FASTAPI
+# ══════════════════════════════════════════════════════════════
+#
+#
+#   CASE A — Reading huge files (saves RAM)
+#
+#   If you read a 10 GB log file or 1 million database rows:
+#
+#   With return: Python loads ALL 10 GB into RAM at once
+#                → your computer crashes (Out of Memory)
+#
+#   With yield: Python gives you ONE line at a time:
+#               gives line 1 → pauses → you process it →
+#               gives line 2 → pauses → you process it...
+#               RAM usage stays near ZERO.
+#
+#   def read_huge_file():
+#       with open("huge_file.log") as f:
+#           for line in f:
+#               yield line   # gives one line, pauses, waits for next call
+#
+#
+#   CASE B — Database connection management (you will see this a LOT in FastAPI)
+#
+#   When opening a database connection for an endpoint:
+#
+#   def get_db():
+#       db = SessionLocal()   # 1. Open connection to PostgreSQL
+#       try:
+#           yield db          # 2. Pause and give the connection to the endpoint
+#                             #    The endpoint does its work (queries, commits)
+#       finally:
+#           db.close()        # 3. After the endpoint finishes, continue here
+#                             #    and CLOSE the connection cleanly
+#
+#   This pattern guarantees the connection is ALWAYS closed,
+#   even if the endpoint crashes or raises an exception.
+#   The finally block runs no matter what.
+#
+#   yield here = "lend this resource to the caller, take it back when done"
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 12 — BUG WE HIT: depends_on DOES NOT MEAN "READY"
+# ══════════════════════════════════════════════════════════════
+#
+#   PROBLEM: API crashed on startup with "Connection refused"
+#
+#   depends_on: kafka in docker-compose means only:
+#   "wait for the Kafka CONTAINER to start"
+#   It does NOT mean "wait for Kafka to be ready to accept connections".
+#
+#   Kafka needs 10-15 seconds after the container starts to fully initialize.
+#   The API was trying to connect immediately and got "Connection refused".
+#
+#   Error in logs:
+#     Unable connect to "kafka:9092": [Errno 111] Connection refused
+#
+#
+#   FIX: retry loop in kafka_producer.py
+#
+#   async def start_producer():
+#       for attempt in range(10):
+#           try:
+#               await producer.start()
+#               return                      # success — exit the loop
+#           except Exception as e:
+#               print(f"Kafka not ready (attempt {attempt + 1}/10): {e}")
+#               await asyncio.sleep(3)      # wait 3 seconds before retrying
+#       raise RuntimeError("Could not connect to Kafka after 10 attempts")
+#
+#   for attempt in range(10)
+#     Tries up to 10 times before giving up.
+#
+#   await asyncio.sleep(3)
+#     Waits 3 seconds between each attempt (non-blocking — other things can run).
+#     Total max wait: 10 × 3 = 30 seconds.
+#
+#   raise RuntimeError(...)
+#     If Kafka is still not ready after 10 attempts, crash with a clear error.
+#     Better than silently continuing with a broken connection.
+#
+#   WHY THIS HAPPENS:
+#   depends_on only checks if the container PROCESS started.
+#   It does not check if the application INSIDE the container is ready.
+#   This is a common gotcha with docker-compose — always add retry logic
+#   or healthchecks when one service depends on another being truly ready.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 13 — WHAT YOU SEE IN KAFKA UI (localhost:8080)
+# ══════════════════════════════════════════════════════════════
+#
+#   BROKERS
+#     The Kafka servers in the cluster.
+#     In your setup: 1 broker (ID: 1).
+#     Shows: online status, memory usage, Kafka version, uptime.
+#     In production clusters you would see 3, 5, or 10 brokers here.
+#
+#   TOPICS
+#     The message channels. After the first PATCH request:
+#     "number-events" appears here with 1 message.
+#     Click on it to see:
+#       - the JSON message content
+#       - the offset (0 for the first message, 1 for the second, etc.)
+#       - the timestamp of when it was published
+#       - the partition it was written to
+#     Every PATCH /status you make adds one more message here.
+#
+#   CONSUMERS
+#     The services that are subscribed to and reading from topics.
+#     Right now: EMPTY.
+#     Why: you have not implemented any consumers yet.
+#     The Number Inventory Service will have 2 consumers:
+#       - one reading from "port-order-status" (Port Order Service events)
+#       - one reading from "registration-events" (Registration Service events)
+#     These appear here once implemented and connected.
+#     When a consumer falls behind (reads slower than messages arrive),
+#     Kafka UI shows the LAG — how many messages it has not processed yet.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 14 — KAFKA CONCEPTS WITH A REAL-LIFE ANALOGY (POST OFFICE)
+# ══════════════════════════════════════════════════════════════
+#
+#   Think of Kafka as a large postal and delivery company —
+#   or a network of conveyor belts.
+#
+#
+#   1. WHAT IS A BROKER? (The server / the warehouse)
+#
+#   A Broker is simply a server running Apache Kafka.
+#   It is the physical node or Docker container that receives,
+#   stores, and delivers messages.
+#
+#   What it does: stores data on disk.
+#   When your FastAPI sends a message, it physically lands on a Broker.
+#
+#   Cluster: when you link multiple Brokers together (e.g. 3 servers),
+#   you have a Kafka Cluster. If one server crashes, the others take over
+#   without the system stopping.
+#
+#   In your local Docker setup: ONE Broker (the kafka container).
+#
+#
+#   2. WHAT IS A TOPIC? (The mailbox / the drawer)
+#
+#   A Topic is a channel or category where messages are organized.
+#   Think of it as a log file or a database table —
+#   except it stores a continuous stream of events.
+#
+#   What it does: separates types of data. You do not put all messages together!
+#
+#   Examples from your project:
+#     number-events      → only phone number status changes (your topic)
+#     billing-invoices   → only generated invoices (hypothetical)
+#     sms-notifications  → only SMS messages to send (hypothetical)
+#
+#
+#   3. WHAT ARE CONSUMERS? (The ones who process messages)
+#
+#   A Consumer is a service, application, or script that READS (consumes)
+#   messages from a Topic and does something with them.
+#
+#   If your FastAPI is a Producer (creates and sends the message),
+#   a Consumer is the application at the other end that reacts to it.
+#
+#   Practical example:
+#     FastAPI (Producer) sends to number-events:
+#       {"number": "+407...", "status": "ACTIVE"}
+#
+#     Billing Service (Consumer 1) reads it → starts charging the client
+#     Notifications Service (Consumer 2) reads it → emails the client:
+#       "Your number is now active!"
+#
+#
+#   4. WHAT YOU SEE IN KAFKA UI → CONSUMERS TAB
+#
+#   When you click the Consumers tab at localhost:8080,
+#   you see the state of all applications reading from Kafka.
+#
+#   Kafka UI shows critical monitoring info:
+#
+#   Consumer Group Name
+#     The name of the group of applications reading the data
+#     (e.g. billing-service-group)
+#
+#   LAG (the most important metric!)
+#     How many messages were sent to the topic but NOT yet processed
+#     by the consumer.
+#     Lag = 0    → consumer is fast, processing everything in real time
+#     Lag = 5000 → consumer is stuck or too slow, messages are piling up
+#
+#   Active Members
+#     How many instances of the consumer application are running right now.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 15 — SUMMARY TABLE: KAFKA TERMS VS REAL WORLD
+# ══════════════════════════════════════════════════════════════
+#
+#   Kafka Term    │ Real world equivalent          │ In your project
+#   ──────────────┼────────────────────────────────┼─────────────────────────────────
+#   Broker        │ Central postal warehouse        │ Docker kafka container (stores data)
+#   Topic         │ Dedicated mailbox (e.g. bills)  │ number-events (status changes)
+#   Producer      │ The sender (writes the letter)  │ Your FastAPI app
+#   Consumer      │ The recipient (reads the letter)│ Future microservices (Billing, SMS)
+#   Consumer Lag  │ Undelivered letters piling up   │ Messages not yet processed
+#   Kafka UI      │ Postal monitoring dashboard     │ localhost:8080 — see if consumers
+#                 │                                 │ are reading on time or falling behind
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 21 — yield IS PYTHON, lifespan IS FASTAPI
+# ══════════════════════════════════════════════════════════════
+#
+#   yield is a core Python keyword — it was NOT invented by FastAPI.
+#   But in this specific example it is directly tied to how FastAPI
+#   manages the application's lifetime. Here is why:
+#
+#
+#   REASON 1 — The @asynccontextmanager decorator
+#
+#   @asynccontextmanager comes from Python's standard library (contextlib).
+#   Its role is to turn a function with yield into a Context Manager —
+#   a mechanism that prepares things before an action and cleans up after.
+#
+#   FastAPI was built specifically to recognize this structure
+#   and use it to manage server startup and shutdown.
+#
+#
+#   REASON 2 — Passing it as a parameter: FastAPI(..., lifespan=lifespan)
+#
+#   This is the direct proof. FastAPI has a parameter named explicitly "lifespan".
+#
+#   When you write:
+#     app = FastAPI(title="...", lifespan=lifespan)
+#
+#   You are telling the FastAPI framework:
+#   "When the web server starts, find this lifespan function.
+#    Run everything BEFORE yield at Startup.
+#    When the server receives a stop signal, run everything AFTER yield at Shutdown."
+#
+#   Without lifespan=lifespan, FastAPI ignores your function entirely.
+#   The connection to Kafka would never be opened.
+#
+#
+#   REASON 3 — The argument name: async def lifespan(app: FastAPI)
+#
+#   The syntax app: FastAPI tells Python that the parameter this function
+#   receives is the main FastAPI application instance created below.
+#   FastAPI passes itself into the lifespan function automatically at startup.
+#
+#
+#   SUMMARY:
+#
+#   yield               → native Python tool (pauses a function)
+#   @asynccontextmanager → Python contextlib (makes yield usable as a context manager)
+#   lifespan=lifespan   → FastAPI feature (wires the function into server lifecycle)
+#
+#   The combination of all three is the OFFICIAL FastAPI pattern
+#   (introduced in version 0.93.0) for managing global backend resources
+#   such as database connections, Kafka producers, HTTP clients, etc.
+#
+#   Before yield = STARTUP   → open connections, load config, warm up caches
+#   After yield  = SHUTDOWN  → close connections, flush buffers, release resources

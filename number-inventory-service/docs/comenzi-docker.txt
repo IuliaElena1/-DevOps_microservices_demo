@@ -1,0 +1,814 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — Comenzi esențiale
+#  Docker, seed, verificare — tot ce folosești zilnic
+# ══════════════════════════════════════════════════════════════
+#
+#  Versiune vizuală (HTML cu culori):
+#  https://claude.ai/code/artifact/b278741c-b01b-4448-944e-3a70c1015ddf
+#
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 7 — !!! COMENZI RESET COMPLET SERVICII !!!
+#  Cele mai importante comenzi — le dai când vrei un start curat
+# ══════════════════════════════════════════════════════════════
+#
+#  !! FOARTE IMPORTANTE !! Memorizează-le, le vei folosi des.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. Oprește tot (containere + volumes + rețele orphan)      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  docker compose down --volumes --remove-orphans
+#
+#  --volumes          → șterge și datele (Kafka topic-uri, mesaje)
+#  --remove-orphans   → curăță containerele rămase din configurații vechi
+#                       (când ai redenumit/șters servicii din compose.yml)
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. Pornește tot din zero (rebuild imagine + detached)      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  docker compose up --build -d
+#
+#  --build   → reconstruiește imaginile Docker din Dockerfile
+#              (important după modificări de cod sau requirements.txt)
+#  -d        → rulează în fundal (detached), terminalul rămâne liber
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. Verificare status                                       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  docker compose ps
+#
+#  Verifici că toate containerele au statusul "Up", nu "Exit".
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  NOTĂ: Dacă Docker Desktop nu e pornit                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Adaugă înainte de orice comandă docker:
+#
+#  open -a Docker && until docker info &>/dev/null; do sleep 2; done
+#
+#  Ce face:
+#    open -a Docker           → deschide aplicația Docker Desktop pe Mac
+#    until docker info ...    → așteaptă până când Docker e gata
+#                               (verifică la fiecare 2 secunde)
+#    &>/dev/null              → ascunde output-ul interimar
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  SERVICII DISPONIBILE DUPĂ RESTART                          │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  API            → http://localhost:8000
+#  Kafka UI       → http://localhost:8080
+#  Kafka broker   → localhost:29092  (pentru scripturi externe)
+
+
+# ══════════════════════════════════════════════════════════════
+#  !!! PORNIRE SERVICII (DUPĂ RESET SAU NORMAL) !!!         !!!
+#  Continuarea directă — ce faci după ce ai dat reset
+# ══════════════════════════════════════════════════════════════
+#
+#  !! IMPORTANT !! Serviciile sunt DEJA pornite din pasul anterior —
+#  docker compose up --build -d le-a și startat. Poți verifica cu
+#  docker compose ps — dacă toate sunt "Up", nu mai dai nimic.
+#  Comenzile de mai jos sunt pentru pornire normală (fără reset):
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornește toate serviciile (fără rebuild — imagine existentă)│
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  docker compose up -d
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  SAU cu rebuild forțat (când ai modificat codul)            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  docker compose up --build -d
+#
+#
+#  ┌───────────────────────────┬────────────────────────────────────┐
+#  │  Comandă                  │ Ce face                            │
+#  ├───────────────────────────┼────────────────────────────────────┤
+#  │  docker compose up -d     │ Pornește cu imaginile existente    │
+#  │                           │ (fără rebuild)                     │
+#  ├───────────────────────────┼────────────────────────────────────┤
+#  │  docker compose up        │ Reconstruiește Dockerfile înainte  │
+#  │  --build -d               │ de start — necesar când ai         │
+#  │                           │ schimbat cod sau requirements.txt  │
+#  ├───────────────────────────┼────────────────────────────────────┤
+#  │  -d (detached)            │ Rulează în background — terminalul │
+#  │                           │ rămâne liber                       │
+#  └───────────────────────────┴────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  COMENZI UTILE ÎN CONTINUARE                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  # Log-uri live ale tuturor serviciilor:
+#  docker compose logs -f
+#
+#  # Log-urile unui singur serviciu (e.g. api):
+#  docker compose logs -f api
+#
+#  # Oprește fără să șteargă nimic (restart rapid ulterior):
+#  docker compose stop
+#
+#  # Pornește din nou după un 'stop':
+#  docker compose start
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  !! DIFERENȚA CHEIE: stop vs down !!                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  stop / start      → păstrează containerele și volumele INTACTE
+#                      (restart rapid, datele din Kafka rămân)
+#
+#  down --volumes    → șterge TOT — pentru reset complet
+#                      (comanda din pasul anterior de mai sus)
+
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 1 — PORNIRE
+# ══════════════════════════════════════════════════════════════
+#
+#  Înainte de orice, asigură-te că ești în folderul corect:
+#
+#    cd /Users/icordea/Documents/Projects/DevOps/number-inventory-service
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornire normală (prima dată sau după down):                │
+#  │                                                             │
+#  │    docker compose up -d                                     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornire cu rebuild (după ce ai modificat cod):             │
+#  │                                                             │
+#  │    docker compose up -d --build                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Pornire fresh complet (șterge și volumele — date Kafka):   │
+#  │                                                             │
+#  │    docker compose down --volumes                            │
+#  │    docker compose up -d --build                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CE ÎNSEAMNĂ -d?
+#    -d = detached = rulează în fundal
+#    Fără -d, terminalul rămâne blocat cu log-urile.
+#    Cu -d, terminalul e liber și containerele rulează în spate.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 2 — OPRIRE
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Oprire normală (păstrează datele Kafka):                   │
+#  │                                                             │
+#  │    docker compose down                                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Oprire + ștergere volume (fresh start complet):            │
+#  │                                                             │
+#  │    docker compose down --volumes                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Oprire + ștergere imagini (redownload la restart):         │
+#  │                                                             │
+#  │    docker compose down --volumes --rmi all                  │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  DIFERENȚA:
+#    down          → oprește containerele, păstrează datele
+#    down --volumes → oprește + șterge datele (Kafka, DB etc.)
+#    down --rmi all → oprește + șterge și imaginile descărcate
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 3 — VERIFICARE (că totul rulează)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Vezi statusul tuturor containerelor:                       │
+#  │                                                             │
+#  │    docker compose ps                                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Output-ul arată ceva de genul:
+#    NAME          STATUS     PORTS
+#    api-1         Up         0.0.0.0:8000->8000/tcp
+#    kafka-1       Up         0.0.0.0:9092->9092/tcp
+#    kafka-ui      Up         0.0.0.0:8080->8080/tcp
+#    zookeeper-1   Up
+#
+#  Dacă un container are statusul "Exit" sau "Restarting"
+#  înseamnă că ceva a mers greșit → verifici log-urile.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Verifici că API-ul răspunde (health check):                │
+#  │                                                             │
+#  │    curl http://localhost:8000/health                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Răspuns așteptat: {"status": "ok"}
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Verifici numerele din baza de date:                        │
+#  │                                                             │
+#  │    curl http://localhost:8000/numbers/                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Swagger UI (interfață vizuală pentru testare):             │
+#  │                                                             │
+#  │    http://localhost:8000/docs                               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Kafka UI (vezi topicuri și mesaje):                        │
+#  │                                                             │
+#  │    http://localhost:8080                                     │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 4 — INJECTARE DATE (seed)
+# ══════════════════════════════════════════════════════════════
+#
+#  Serviciul pornește fără date — baza de date e goală.
+#  Scriptul seed.sh injectează 15 numere de test din
+#  data/synthetic_numbers.json.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Rulează scriptul de seed:                                  │
+#  │                                                             │
+#  │    bash scripts/seed.sh                                     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CE FACE SEED.SH:
+#    1. Citește fiecare număr din synthetic_numbers.json
+#    2. Trimite POST /numbers/ pentru fiecare număr
+#    3. Verifică cu GET /numbers/ că au fost adăugate
+#
+#  CÂND SĂ RULEZI SEED?
+#    - după docker compose up (baza de date e goală)
+#    - după docker compose down --volumes (datele s-au șters)
+#    - NU trebuie rulat de fiecare dată dacă datele sunt deja acolo
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 5 — LOG-URI (debugging)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Log-urile API-ului tău (cel mai util):                     │
+#  │                                                             │
+#  │    docker compose logs api -f                               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Log-urile Kafka:                                           │
+#  │                                                             │
+#  │    docker compose logs kafka -f                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Log-urile unui container specific (ultimele 50 linii):     │
+#  │                                                             │
+#  │    docker compose logs api --tail=50                        │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Log-urile tuturor containerelor simultan:                  │
+#  │                                                             │
+#  │    docker compose logs -f                                   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CE ÎNSEAMNĂ -f?
+#    -f = follow = rămâne deschis și afișează log-urile în timp real
+#    Fără -f, afișează log-urile existente și se oprește.
+#    CTRL+C oprește urmărirea log-urilor.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 6 — COMENZI KAFKA (verificare mesaje)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Lista tuturor topicurilor existente:                       │
+#  │                                                             │
+#  │    docker compose exec kafka \                              │
+#  │      kafka-topics --bootstrap-server localhost:9092 --list  │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Câte mesaje are un topic:                                  │
+#  │                                                             │
+#  │    docker compose exec kafka \                              │
+#  │      kafka-run-class kafka.tools.GetOffsetShell \           │
+#  │      --broker-list localhost:9092 --topic number-events     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Output: number-events:0:16  → înseamnă 16 mesaje în partition 0
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Citește mesajele dintr-un topic (primele 5):               │
+#  │                                                             │
+#  │    docker compose exec kafka \                              │
+#  │      kafka-console-consumer \                               │
+#  │      --bootstrap-server localhost:9092 \                    │
+#  │      --topic number-events \                                │
+#  │      --from-beginning --max-messages 5                      │
+#  └─────────────────────────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 7 — DOCKER GENERAL (comenzi utile)
+# ══════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Toate containerele care rulează (pe tot sistemul):         │
+#  │                                                             │
+#  │    docker ps                                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Toate imaginile descărcate:                                │
+#  │                                                             │
+#  │    docker images                                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Intră în containerul API (terminal interactiv):            │
+#  │                                                             │
+#  │    docker compose exec api bash                             │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Curăță tot ce nu mai e folosit (imagini, volume orfane):   │
+#  │                                                             │
+#  │    docker system prune                                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ATENȚIE: docker system prune șterge toate containerele oprite
+#  și imaginile nefolosite. Rulează cu atenție.
+
+
+# ══════════════════════════════════════════════════════════════
+#  PART 8 — FLUX ZILNIC RECOMANDAT
+# ══════════════════════════════════════════════════════════════
+#
+#  La începutul zilei:
+#    1. docker compose up -d          ← pornești totul
+#    2. docker compose ps             ← verifici că rulează
+#    3. bash scripts/seed.sh          ← injectezi date (dacă e nevoie)
+#
+#  Când modifici cod:
+#    1. docker compose down
+#    2. docker compose up -d --build  ← rebuild cu noul cod
+#    3. bash scripts/seed.sh          ← reinjectezi datele
+#
+#  La sfârșitul zilei:
+#    1. docker compose down           ← oprești tot
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS — CE FACE COMANDA python3 -m app.main ?
+# ══════════════════════════════════════════════════════════════
+#
+#  Îi spune sistemului: "Rulează codul Python, dar tratează
+#  fișierul ca pe un modul oficial al proiectului!"
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. python3                                                 │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Lansează interpretorul de Python 3 instalat pe Mac.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. -m   (de la Module — flagul magic)                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Îi spune lui Python: "Nu căuta un simplu fișier text pe disc,
+#  ci caută un modul/pachet Python și rulează-l având ca referință
+#  folderul curent în care mă aflu."
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Fără -m (python3 app/main.py):                             │
+#  │    Python execută main.py izolat.                           │
+#  │    Importuri de tipul "from app.config import settings"     │
+#  │    pot da ModuleNotFoundError — Python nu știe unde e        │
+#  │    rădăcina proiectului.                                    │
+#  │                                                             │
+#  │  Cu -m (python3 -m app.main):                               │
+#  │    Python adaugă folderul curent (number-inventory-service) │
+#  │    în calea de căutare (sys.path).                          │
+#  │    Toate importurile din interiorul proiectului funcționează │
+#  │    impecabil!                                               │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. app.main                                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Calea către fișierul tău în sintaxă Python (cu punct),
+#  nu în sintaxă de fișiere/director (cu slash).
+#
+#  ┌──────────────────┬──────────────────────────────────────────┐
+#  │  Pe disc         │  app/main.py                             │
+#  │  Cum vede Python │  app.main  (fără extensia .py)           │
+#  └──────────────────┴──────────────────────────────────────────┘
+#
+#
+#  PE SCURT:
+#  Este modalitatea profesională de a porni un fișier Python
+#  dintr-un proiect mai mare, asigurându-te că toate importurile
+#  dintre fișiere funcționează fără erori.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  ANALOGIA CASEI — de ce contează -m                         │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Folderul number-inventory-service = casa.
+#  Folderul app                      = o cameră din casă.
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Fără -m (python3 app/main.py):                             │
+#  │                                                             │
+#  │  Python e parașutat direct în mijlocul camerei app.         │
+#  │  Când vede în cod: "from app.config import settings"        │
+#  │  caută un folder app în jurul lui — dar el e DEJA în app!   │
+#  │                                                             │
+#  │  Rezultat: ModuleNotFoundError: No module named 'app'       │
+#  │  Nu știe ce se află în afara camerei.                       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Cu -m (python3 -m app.main):                               │
+#  │                                                             │
+#  │  Python e pus la ușa de la intrare (number-inventory-service│
+#  │  = holul principal).                                        │
+#  │                                                             │
+#  │  Prin -m, îi zici: "Setează-ți punctul de plecare holul     │
+#  │  principal, apoi intră în camera app și rulează main."      │
+#  │                                                             │
+#  │  Acum când vede: "from app.config import settings"          │
+#  │  se uită din hol, vede clar app/, intră, găsește config.py  │
+#  │  → Totul merge impecabil!                                   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  CONCLUZIE:
+#  Când folosești -m, Python știe de unde începe întreaga
+#  aplicație (rădăcina proiectului).
+#  Fără -m, el crede că punctul de start e folderul fișierului.
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 2 — CELE 3 COMENZI LOCALE (venv, pip, python3 -m)
+#  Workflow zilnic explicat complet
+# ══════════════════════════════════════════════════════════════
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. source venv/bin/activate                                │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Ce face:
+#    "Intră" în mediul virtual creat pe Mac. Schimbă contextul
+#    terminalului astfel încât python3 și pip să folosească
+#    versiunea și librăriile din folderul proiectului tău,
+#    nu pe cele ale sistemului de operare.
+#
+#  Când se folosește:
+#    În FIECARE sesiune nouă de terminal.
+#    Dacă închizi fereastra și o deschizi iar, trebuie să dai
+#    din nou source venv/bin/activate.
+#
+#  Cum știi că a mers:
+#    Apare (venv) la începutul liniei în terminal.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. pip install -r requirements.txt                         │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Ce face:
+#    Citește requirements.txt (lista de librării: FastAPI,
+#    aiokafka etc.) și le descarcă în folderul venv.
+#
+#  Când se folosește:
+#    → O singură dată, imediat după ce creezi un venv nou.
+#    → Când adaugi/modifici librării în requirements.txt.
+#    → Când un coleg adaugă o librărie nouă și dai git pull.
+#
+#  NU trebuie rulată de fiecare dată când pornești aplicația.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. python3 -m app.main                                     │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Ce face:
+#    Pornește aplicația Python local.
+#    -m tratează folderul curent ca pachet Python → rezolvă
+#    problemele de importuri (from app.routers import ...).
+#
+#  Când se folosește:
+#    De fiecare dată când testezi codul local pe Mac.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  WORKFLOW ZILNIC                                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  1. Deschizi terminalul și intri în proiect
+#  2. source venv/bin/activate       ← la sesiune nouă de terminal
+#  3. pip install -r requirements.txt ← doar dacă s-au schimbat
+#  4. python3 -m app.main            ← de câte ori vrei să testezi
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 3 — DE CE TREBUIE SĂ ACTIVEZI MEDIUL?
+#  Venv explicat complet
+# ══════════════════════════════════════════════════════════════
+#
+#  Dacă instalezi toate librăriile direct în Python-ul global
+#  al Mac-ului, în timp se creează haos total:
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Proiect vechi → are nevoie de librărie versiunea 1.0       │
+#  │  Proiectul tău → are nevoie de librărie versiunea 2.0       │
+#  │  Grămadă împreună → conflicte, aplicații care crapă         │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  Mediul virtual (venv) = o „bulă" izolată pentru proiect.
+#
+#  Când activezi (source venv/bin/activate):
+#    → Terminalul uită de Python-ul global al Mac-ului
+#    → Folosește doar executabilul Python și librăriile
+#      din folderul venv al proiectului tău
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  CÂND NU E ACTIVAT                                          │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Terminalul "privește" spre sistemul Mac-ului.              │
+#  │  Dacă dai python3 -m app.main, Python caută aiokafka        │
+#  │  în Mac-ul global, nu o găsește → ModuleNotFoundError.      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  CÂND ESTE ACTIVAT                                          │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Apare (venv) la stânga liniei de terminal.                 │
+#  │  Mediul rămâne activat până când:                           │
+#  │    - Închizi fereastra/tab-ul de terminal                   │
+#  │    - Deschizi o fereastră nouă de terminal                  │
+#  │    - Execuți comanda: deactivate                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#
+#  TRUC RAPID:
+#    Ai deschis un terminal nou? → source venv/bin/activate
+#    Apare (venv) în stânga?     → Ești pregătit, dai python3 -m app.main
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 4 — UVICORN APP.MAIN:APP --RELOAD
+#  Ce face comanda și diferența față de Kafka UI
+# ══════════════════════════════════════════════════════════════
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  CE ÎNSEAMNĂ COMANDA?                                       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌──────────────────┬──────────────────────────────────────────┐
+#  │  uvicorn         │  Serverul web asincron care rulează FastAPI│
+#  ├──────────────────┼──────────────────────────────────────────┤
+#  │  app.main:app    │  Caută în folderul app/, fișierul main.py,│
+#  │                  │  variabila numită app (instanța FastAPI)  │
+#  ├──────────────────┼──────────────────────────────────────────┤
+#  │  --reload        │  La fiecare save al unui fișier de cod,  │
+#  │                  │  serverul se repornește automat.          │
+#  │                  │  (Doar pentru development!)               │
+#  └──────────────────┴──────────────────────────────────────────┘
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. uvicorn app.main:app --reload  vs.  2. Kafka UI         │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  uvicorn app.main:app --reload                              │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Ce este: Motorul aplicației tale FastAPI.                  │
+#  │                                                             │
+#  │  Ce face: Fără comanda asta, aplicația NU EXISTĂ în memorie.│
+#  │  Nimeni nu poate trimite request-uri (POST /numbers etc.).  │
+#  │                                                             │
+#  │  Ce vezi în terminal:                                       │
+#  │    - Request-urile HTTP care vin (GET /, POST /numbers/)    │
+#  │    - Erori de cod Python (stack traces, 500 errors)         │
+#  │    - Print-urile/log-urile puse de tine în cod              │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  Kafka UI (http://localhost:8080)                           │
+#  ├─────────────────────────────────────────────────────────────┤
+#  │  Ce este: Dashboard vizual pentru broker-ul Kafka din Docker│
+#  │                                                             │
+#  │  Ce face: Arată starea mesajelor care au ajuns în Kafka.    │
+#  │                                                             │
+#  │  Ce vezi acolo:                                             │
+#  │    - Topic-urile create                                     │
+#  │    - Conținutul mesajelor (payload-ul) trimise de aplicație │
+#  │    - Consumerii care citesc din Kafka                       │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#
+#  ANALOGIA PLICULUI ȘI A CUTIEI POȘTALE:
+#
+#  Aplicația ta (uvicorn) = Postașul
+#    El scrie scrisoarea, o împachetează și o duce la cutie.
+#    Dacă postașul NU lucrează (uvicorn e oprit), nicio scrisoare
+#    nu pleacă nicăieri.
+#
+#  Kafka UI = Cutia Poștală Transparentă
+#    Te uiți prin sticlă ca să vezi dacă scrisoarea trimisă de
+#    postaș a ajuns înăuntru.
+#
+#
+#  RĂSPUNSUL PE SCURT:
+#  Nu poți vedea în Kafka UI dacă aplicația are erori sau de ce
+#  nu pornește, pentru că aplicația nici nu apucă să trimită
+#  mesaje dacă e oprită.
+#
+#  ┌──────────────────┬──────────────────────────────────────────┐
+#  │  uvicorn         │  Serverul pornit + codul Python rulează  │
+#  │  Kafka UI        │  Mesajele trimise au ajuns în Kafka       │
+#  └──────────────────┴──────────────────────────────────────────┘
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 5 — CELE 4 COMENZI TRADUSE ÎN ROMÂNĂ
+#  Ce face fiecare și ce se întâmplă dacă NU o dai
+# ══════════════════════════════════════════════════════════════
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  1. lsof -ti:8000 | xargs kill -9 2>/dev/null || true       │
+#  │     "Mătura care curăță terenul"                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce o folosești:
+#    Portul 8000 e ca o priză de curent. Aplicația ta (Uvicorn)
+#    vrea să se conecteze la priza 8000. Dacă ai închis terminalul
+#    greșit sau aplicația s-a blocat, priza a rămas ocupată.
+#
+#  Ce face comanda:
+#    lsof -ti:8000 → caută PID-ul procesului care ține priza ocupată
+#    kill -9       → îl închide cu forța (omoară procesul din fundal)
+#
+#  Dacă NU o dai:
+#    Errno 48: Address already in use
+#    → Serverul Python refuză să pornească.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  2. docker compose up -d                                    │
+#  │     "Pornirea motoarelor din spatele aplicației"            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce o folosești:
+#    Codul tău Python nu lucrează singur. El trimite mesaje
+#    către Kafka (care depinde de Zookeeper). Docker ia Kafka și
+#    Zookeeper gata împachetate în "cutii" (containere) și le
+#    pornește, fără să instalezi nimic manual pe Mac.
+#
+#  Parametrii:
+#    docker compose up → pornește serviciile din docker-compose.yml
+#    -d (detached)     → le lasă să ruleze în fundal, fără să
+#                        blocheze terminalul
+#
+#  Dacă NU o dai:
+#    Codul pornește, dar când încearcă să se conecteze la Kafka
+#    pe portul 9092 → ConnectionRefusedError.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  3. source venv/bin/activate                                │
+#  │     "Intratul în bula cu unelte speciale pentru proiect"    │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce o folosești:
+#    Mac-ul are un Python nativ (global). Proiectul tău are nevoie
+#    de versiuni exacte de librării (fastapi, aiokafka etc.).
+#    venv = folder izolat → nu amesteci librăriile proiectelor.
+#
+#  Ce face comanda:
+#    Schimbă "rutarea" din terminal.
+#    Terminalul zice: "Ignor Python-ul din Mac și folosesc
+#    doar librăriile din folderul venv al proiectului curent."
+#
+#  Dacă NU o dai:
+#    command not found: uvicorn
+#    sau ModuleNotFoundError: No module named 'aiokafka'
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  4. uvicorn app.main:app --reload                           │
+#  │     "Motorul web care pune aplicația pe internet (local)"   │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  De ce o folosești:
+#    Codul din app/main.py e o listă de instrucțiuni pe o foaie.
+#    Nu poate primi cereri de la browser singur. Uvicorn stă de
+#    veghe: ascultă portul 8000, primește cererile HTTP, le dă
+#    codului Python să le proceseze și trimite răspunsul înapoi.
+#
+#  Parametrii:
+#    app.main   → folderul app, fișierul main.py
+#    :app       → obiectul app = FastAPI() din main.py
+#    --reload   → la fiecare Save, serverul se repornește singur
+#
+#  Dacă NU o dai:
+#    Aplicația nu rulează. Nu ai la ce să te conectezi pe
+#    http://localhost:8000/docs
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  TL;DR                                                      │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  kill          → Eliberează priza (portul 8000)
+#  docker up     → Pornește infrastructura externă (Kafka)
+#  source venv   → Pune-ți "ochelarii Python" ai proiectului
+#  uvicorn       → Dă drumul la aplicație și stai cu ochii pe ecran
+
+
+# ══════════════════════════════════════════════════════════════
+#  BONUS 6 — HARD RESET & RESTART ENVIRONMENT
+#  Resetare Completă Mediu de Dezvoltare
+# ══════════════════════════════════════════════════════════════
+#
+#  Folosești acești pași când vrei să elimini toate stările
+#  temporare: cache, mesaje vechi din Kafka, procese blocate.
+#  Practică foarte întâlnită în development.
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  PASUL 1 — OPRIRE SERVICII                                  │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  # 1. Oprește FastAPI din terminalul unde rulează:
+#  killall uvicorn
+#
+#  # 2. Oprește și șterge containerele, rețeaua și volumele
+#  #    (datele din Kafka sunt șterse complet cu -v)
+#  docker compose down -v
+#
+#  # 3. (Opțional) Oprește orice container uitat în fundal
+#  docker stop $(docker ps -aq) 2>/dev/null
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  PASUL 2 — REPORNIRE CURATĂ                                 │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  # 1. Pornește infrastructura (Kafka, Zookeeper, Kafka UI)
+#  docker compose up -d
+#
+#  # 2. Așteaptă 10-15 secunde pentru inițializarea Kafka,
+#  #    apoi pornește API-ul local:
+#  source venv/bin/activate
+#  uvicorn app.main:app --reload
+#
+#
+#  ┌─────────────────────────────────────────────────────────────┐
+#  │  INTERFEȚE UTILE                                            │
+#  └─────────────────────────────────────────────────────────────┘
+#
+#  FastAPI Swagger Docs: http://localhost:8000/docs
+#  Kafka UI Dashboard:   http://localhost:8080

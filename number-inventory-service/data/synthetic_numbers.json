@@ -1,0 +1,17 @@
+[
+  { "e164": "+14155550100", "country_code": "US", "current_carrier": "Verizon" },
+  { "e164": "+14155550101", "country_code": "US", "current_carrier": "AT&T" },
+  { "e164": "+14155550102", "country_code": "US", "current_carrier": "T-Mobile" },
+  { "e164": "+14155550103", "country_code": "US", "current_carrier": "Lumen" },
+  { "e164": "+14155550108", "country_code": "US", "current_carrier": "Verizon" },
+  { "e164": "+14155550109", "country_code": "US", "current_carrier": "AT&T" },
+  { "e164": "+14155550114", "country_code": "US", "current_carrier": "T-Mobile" },
+  { "e164": "+14155550118", "country_code": "US", "current_carrier": "Lumen" },
+  { "e164": "+14155550119", "country_code": "US", "current_carrier": "Verizon" },
+  { "e164": "+14085550120", "country_code": "US", "current_carrier": "Comcast" },
+  { "e164": "+442071830000", "country_code": "GB", "current_carrier": "BT" },
+  { "e164": "+442071830007", "country_code": "GB", "current_carrier": "Vodafone" },
+  { "e164": "+442071830008", "country_code": "GB", "current_carrier": "BT" },
+  { "e164": "+442071830009", "country_code": "GB", "current_carrier": "Vodafone" },
+  { "e164": "+493083050000", "country_code": "DE", "current_carrier": "Deutsche Telekom" }
+]

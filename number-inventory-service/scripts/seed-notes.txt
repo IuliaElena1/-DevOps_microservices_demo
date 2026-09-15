@@ -1,0 +1,191 @@
+# ══════════════════════════════════════════════════════════════
+#  LEARNING NOTES — seed.sh explained line by line
+#  File: number-inventory-service/scripts/seed.sh
+#  Purpose: reads synthetic_numbers.json and injects each number
+#           into the API via POST /numbers/
+# ══════════════════════════════════════════════════════════════
+
+
+# ─── LINE 1 ───────────────────────────────────────────────────
+#!/usr/bin/env bash
+#
+#   #!          → "shebang" — tells the OS which interpreter to use to run this file
+#   /usr/bin/env bash → find bash wherever it is installed on this machine
+#                       safer than hardcoding #!/bin/bash, which may not exist on all systems
+
+
+# ─── LINE 2 ───────────────────────────────────────────────────
+# Reads synthetic_numbers.json and injects each number via POST /numbers/
+#
+#   A comment — ignored by bash, exists only for humans reading the script.
+
+
+# ─── LINE 3 ───────────────────────────────────────────────────
+BASE_URL="${1:-http://127.0.0.1:8000}"
+#
+#   BASE_URL    → a variable that holds the API's address
+#   $1          → the first argument passed when running the script
+#                 e.g. bash seed.sh http://localhost:9000  →  $1 is http://localhost:9000
+#   :-          → "default value" operator: if $1 is empty or not given, use what follows
+#   http://127.0.0.1:8000 → the default: localhost on port 8000
+#
+#   Result: you can run the script with no arguments (uses default)
+#           or pass a custom URL as the first argument
+
+
+# ─── LINE 4 ───────────────────────────────────────────────────
+JSON_FILE="$(dirname "$0")/../data/synthetic_numbers.json"
+#
+#   JSON_FILE   → variable holding the path to the input file
+#   $0          → the path of the script itself (e.g. scripts/seed.sh)
+#   dirname     → strips the filename and returns just the directory (e.g. scripts/)
+#   $()         → command substitution: runs the command inside and uses its output as a value
+#   /../data/.. → goes one level up from scripts/ then into data/
+#
+#   Result: the path always resolves correctly no matter where you call the script from
+
+
+# ─── LINES 6-9 ────────────────────────────────────────────────
+if ! command -v jq &>/dev/null; then
+  echo "Error: jq is not installed. Run: brew install jq"
+  exit 1
+fi
+#
+#   jq          → a command-line tool for parsing JSON (used later to read the file)
+#   command -v jq → checks if jq exists on the system (returns its path if found)
+#   !           → negation: "if jq is NOT found"
+#   &>/dev/null → redirect both stdout and stderr to /dev/null (discard output silently)
+#   echo        → prints a message to the terminal
+#   exit 1      → stops the script immediately with error code 1 (non-zero = failure)
+#
+#   Result: if jq is missing, the script tells you how to install it and stops
+
+
+# ─── LINES 11-14 ──────────────────────────────────────────────
+if [[ ! -f "$JSON_FILE" ]]; then
+  echo "Error: file not found at $JSON_FILE"
+  exit 1
+fi
+#
+#   [[ ... ]]   → bash conditional test block
+#   -f          → "is this a regular file?" (returns true if it exists and is a file)
+#   !           → negation: "if the file does NOT exist"
+#
+#   Result: if the JSON file is missing, the script stops with a clear error
+
+
+# ─── LINES 16-18 ──────────────────────────────────────────────
+total=$(jq length "$JSON_FILE")
+echo "Injecting $total numbers from $JSON_FILE into $BASE_URL ..."
+echo "---"
+#
+#   jq length   → reads the JSON file and returns the number of items in the array
+#   $()         → command substitution: captures jq's output into the variable total
+#   echo        → prints the message; $total and $BASE_URL are expanded inline
+
+
+# ─── LINES 20-21 ──────────────────────────────────────────────
+ok=0
+fail=0
+#
+#   Two counters: ok tracks successful inserts, fail tracks errors.
+#   Initialized to 0 before the loop starts.
+
+
+# ─── LINE 23 ──────────────────────────────────────────────────
+while IFS= read -r entry; do
+#
+#   while ... do → loop: runs the block below for each iteration
+#   IFS=        → "Input Field Separator" set to empty: preserves whitespace exactly as-is
+#   read -r     → reads one line of input into the variable "entry"
+#                 -r = raw mode: backslashes are not treated as escape characters
+#   entry       → holds one JSON object per iteration, e.g.:
+#                 {"e164":"+14155550100","country_code":"US","current_carrier":"Verizon"}
+
+
+# ─── LINES 24-29 ──────────────────────────────────────────────
+  e164=$(echo "$entry" | jq -r '.e164')
+  status=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST "$BASE_URL/numbers/" \
+    -H "Content-Type: application/json" \
+    -d "$entry")
+#
+#   e164        → extracts just the phone number from the JSON entry
+#   jq -r '.e164' → reads the .e164 field; -r = raw output (no quotes around the string)
+#
+#   curl        → makes an HTTP request
+#   -s          → silent: hides curl's progress output
+#   -o /dev/null → discard the response body (we only care about the status code)
+#   -w "%{http_code}" → write out only the HTTP status code (201, 409, 500, etc.)
+#   -X POST     → use the POST method
+#   -H "Content-Type: application/json" → tell the server we're sending JSON
+#   -d "$entry" → the request body: the full JSON object for this number
+#   \           → line continuation: the command continues on the next line
+
+
+# ─── LINES 31-40 ──────────────────────────────────────────────
+  if [[ "$status" == "201" ]]; then
+    echo "  ✓ $e164"
+    ((ok++))
+  elif [[ "$status" == "409" ]]; then
+    echo "  ~ $e164 (already exists, skipping)"
+    ((ok++))
+  else
+    echo "  ✗ $e164 — HTTP $status"
+    ((fail++))
+  fi
+#
+#   201  → HTTP "Created": number was inserted successfully
+#   409  → HTTP "Conflict": number already exists in the DB — not an error, just skip
+#   else → any other status (400, 500, etc.) = real failure
+#   ((ok++))   → increment the ok counter by 1
+#   ((fail++)) → increment the fail counter by 1
+
+
+# ─── LINE 41 ──────────────────────────────────────────────────
+done < <(jq -c '.[]' "$JSON_FILE")
+#
+#   done        → end of the while loop
+#   < <(...)    → process substitution: feeds the output of a command as input to the loop
+#   jq -c '.[]' → reads the JSON array and outputs each object on its own line
+#                 -c = compact (one line per object, no pretty-printing)
+#
+#   Result: the loop receives one JSON object per line and processes them one by one
+
+
+# ─── LINES 43-48 ──────────────────────────────────────────────
+echo "---"
+echo "Done: $ok injected, $fail failed"
+echo ""
+echo "Verification — GET /numbers/ returns:"
+curl -s "$BASE_URL/numbers/" | jq '[.[] | {e164, status, version}]'
+#
+#   Final summary printed after the loop finishes.
+#
+#   curl -s "$BASE_URL/numbers/" → GET request to list all numbers
+#   | jq '[.[] | {e164, status, version}]'
+#     |           → pipe: sends curl's output as input to jq
+#     .[]         → iterate over every item in the JSON array
+#     {e164, status, version} → for each item, keep only these three fields
+#     [...]       → wrap the results back into an array
+#
+#   Result: prints a clean summary of all numbers in the DB after seeding
+
+
+# ══════════════════════════════════════════════════════════════
+#  HOW TO RUN
+# ══════════════════════════════════════════════════════════════
+#
+#   Requirement: the Docker container must be running first.
+#     docker run -d -p 8000:8000 --name phone-sor-api phone-sor-api:v1
+#
+#   Run from the project root (number-inventory-service/):
+#     bash scripts/seed.sh
+#
+#   Run with a custom URL:
+#     bash scripts/seed.sh http://localhost:9000
+#
+#   HTTP status codes you will see:
+#     ✓  201 = number created successfully
+#     ~  409 = number already exists, skipped (safe to re-run)
+#     ✗  anything else = real error, check docker logs phone-sor-api
