@@ -39,9 +39,9 @@ GITHUB_TOKEN=$(aws ssm get-parameter \
   --output text)
 
 # 5. Clone using token embedded in URL — token stays in memory, never written to disk
-git clone https://$GITHUB_TOKEN@github.com/IuliaElena1/DevOps_microservices_demo /app
+git clone https://$GITHUB_TOKEN@github.com/IuliaElena1/-DevOps_microservices_demo /app
 
-# 6. Start all services with docker-compose
-cd /app && sudo docker-compose up --build -d
+# 6. Start all services with docker-compose (full path needed — sudo doesn't inherit /usr/local/bin)
+cd /app && sudo /usr/local/bin/docker-compose up --build -d
 EOF
 }
