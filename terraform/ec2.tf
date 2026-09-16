@@ -3,7 +3,7 @@ resource "aws_instance" "ec2_server" {
   key_name             = "myFirstKey"
   ami                  = nonsensitive(data.aws_ssm_parameter.amzn2_linux.value)
   iam_instance_profile = aws_iam_instance_profile.ecr_policy_attachment.name
-  instance_type        = "t3.micro"
+  instance_type        = "t3.small"
   subnet_id            = aws_subnet.public_subnet1.id
   vpc_security_group_ids = [
     aws_security_group.ssh_sg.id,
