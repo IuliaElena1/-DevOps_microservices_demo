@@ -1,12 +1,12 @@
 # S3 Bucket — bucket name includes AWS account ID to guarantee global uniqueness
-terraform {
-  backend "s3" {
-    bucket         = "devops-tfstate-385209919903"
-    key            = "stage1/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-locks"
-  }
-}
+# terraform {
+#   backend "s3" {
+#     bucket         = "devops-tfstate-385209919903"
+#     key            = "stage1/terraform.tfstate"
+#     region         = "us-east-1"
+#     dynamodb_table = "terraform-locks"
+#   }
+# }
 
 resource "aws_s3_bucket" "terraform_state" {
   bucket        = "devops-tfstate-385209919903"

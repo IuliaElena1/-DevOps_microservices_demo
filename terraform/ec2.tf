@@ -1,11 +1,11 @@
 
 resource "aws_instance" "ec2_server" {
-  key_name                    = "myFirstKey"
-  ami                         = nonsensitive(data.aws_ssm_parameter.amzn2_linux.value)
-  iam_instance_profile        = aws_iam_instance_profile.ecr_policy_attachment.name
-  instance_type               = "t3.micro"
-  subnet_id                   = aws_subnet.public_subnet1.id
-  vpc_security_group_ids      = [
+  key_name             = "myFirstKey"
+  ami                  = nonsensitive(data.aws_ssm_parameter.amzn2_linux.value)
+  iam_instance_profile = aws_iam_instance_profile.ecr_policy_attachment.name
+  instance_type        = "t3.micro"
+  subnet_id            = aws_subnet.public_subnet1.id
+  vpc_security_group_ids = [
     aws_security_group.ssh_sg.id,
     aws_security_group.number_inventory_sg.id,
     aws_security_group.port_order_sg.id,
@@ -30,10 +30,18 @@ sudo chmod +x /usr/local/bin/docker-compose
 # 3. Log in to AWS ECR (command from AWS -> ECR -> view push commands)
 aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 385209919903.dkr.ecr.us-east-1.amazonaws.com
 
-# 4. Clone the project repository (GIT_TERMINAL_PROMPT=0 prevents git from trying to open a TTY for credentials)
-GIT_TERMINAL_PROMPT=0 git clone https://github.com/8x8/DevOps_microservices_demo /app
+# 4. Read GitHub token from SSM Parameter Store (token is encrypted in AWS, never stored in code)
+GITHUB_TOKEN=$(aws ssm get-parameter \
+  --name "/devops/github_token" \
+  --with-decryption \
+  --region us-east-1 \
+  --query "Parameter.Value" \
+  --output text)
 
-# 5. Start all services with docker-compose
+# 5. Clone using token embedded in URL — token stays in memory, never written to disk
+git clone https://$GITHUB_TOKEN@github.com/IuliaElena1/DevOps_microservices_demo /app
+
+# 6. Start all services with docker-compose
 cd /app && sudo docker-compose up --build -d
 EOF
 }
