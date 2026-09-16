@@ -23,9 +23,11 @@ sudo yum install -y docker git aws-cli
 sudo systemctl enable --now docker
 sudo usermod -a -G docker ec2-user
 
-# 2. Install docker-compose 
-sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# 2. Install docker compose
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo curl -SL "https://github.com/docker/buildx/releases/download/v0.17.1/buildx-v0.17.1.linux-amd64" -o /usr/local/lib/docker/cli-plugins/docker-buildx
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # 3. Log in to AWS ECR (command from AWS -> ECR -> view push commands)
 aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 385209919903.dkr.ecr.us-east-1.amazonaws.com
@@ -41,7 +43,7 @@ GITHUB_TOKEN=$(aws ssm get-parameter \
 # 5. Clone using token embedded in URL — token stays in memory, never written to disk
 git clone https://$GITHUB_TOKEN@github.com/IuliaElena1/-DevOps_microservices_demo /app
 
-# 6. Start all services with docker-compose (full path needed — sudo doesn't inherit /usr/local/bin)
-cd /app && sudo /usr/local/bin/docker-compose up --build -d
+# 6. Start all services with docker compose
+cd /app && sudo docker compose up --build -d
 EOF
 }
